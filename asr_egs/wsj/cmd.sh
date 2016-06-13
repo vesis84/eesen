@@ -19,3 +19,9 @@ export cuda_cmd=run.pl
 # Comet cluster
 #export cuda_cmd="slurm_comet.pl -p gpu-shared -t 48:00:00 --gpu 1"
 
+if [ $(hostname -d) == 'fit.vutbr.cz' ]; then
+  export train_cmd="queue.pl -l mem_free=2G,ram_free=2G"
+  export decode_cmd="queue.pl -l mem_free=3G,ram_free=3G"
+  export cuda_cmd="queue.pl -l gpu=1"
+fi
+
