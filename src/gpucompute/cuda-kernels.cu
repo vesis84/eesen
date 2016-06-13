@@ -318,7 +318,7 @@ static void _vec_min(const Real* v, Real* value, int dim) {
   int32_cuda i = blockIdx.x * blockDim.x + threadIdx.x;
 
   if(i >= CU1DBLOCK) return;
-  
+
   __shared__ Real row_data[CU1DBLOCK];
 
   int block_size = (dim + CU1DBLOCK - 1) / CU1DBLOCK;
@@ -365,6 +365,7 @@ static void _vec_max(const Real* v, Real* value, int dim) {
   //get the sum
   *value = _max_reduce(row_data);
 }
+
 
 // Adds diag(M N) to v, where M and N are matrices.  We supply row_stride and
 // col_stride arguments for M and N, and swapping them allows us to transpose
@@ -594,6 +595,63 @@ static void _apply_ceiling(Real* mat, Real ceiling_val, MatrixDim d) {
   }
 }
 
+template<typename Real>
+__global__
+static void _row_min(const Real* mat, Real* row_min, MatrixDim dim) {
+  int32_cuda i = blockIdx.x * blockDim.x + threadIdx.x;
+  int32_cuda j = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if(i >= CU1DBLOCK) return;
+  if(j >= dim.rows) return;
+  if(blockDim.y > 1) return;
+
+  __shared__ Real row_data[CU1DBLOCK];
+
+  int block_size = (dim.cols + CU1DBLOCK - 1) / CU1DBLOCK;
+
+  Real min = 1.0 / 0.0; // infinity.
+
+  for (int k = i * block_size; k < (i+1) * block_size && k < dim.cols; k++) {
+     Real mat_kj = mat[k + j*dim.stride];
+     if (mat_kj < min) min = mat_kj;
+  }
+
+  row_data[i] = min;
+
+  __syncthreads();
+
+  // get the sum,
+  row_min[j] = _min_reduce(row_data);
+}
+
+template<typename Real>
+__global__
+static void _row_max(const Real* mat, Real* row_max, MatrixDim dim) {
+  int32_cuda i = blockIdx.x * blockDim.x + threadIdx.x;
+  int32_cuda j = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if(i >= CU1DBLOCK) return;
+  if(j >= dim.rows) return;
+  if(blockDim.y > 1) return;
+
+  __shared__ Real row_data[CU1DBLOCK];
+
+  int block_size = (dim.cols + CU1DBLOCK - 1) / CU1DBLOCK;
+
+  Real max = -1.0 / 0.0; // -infinity.
+
+  for (int k = i * block_size; k < (i+1) * block_size && k < dim.cols; k++) {
+     Real mat_kj = mat[k + j*dim.stride];
+     if (mat_kj > max) max = mat_kj;
+  }
+
+  row_data[i] = max;
+
+  __syncthreads();
+
+  // get the sum,
+  row_max[j] = _max_reduce(row_data);
+}
 
 template<typename Real>
 __global__
@@ -925,6 +983,19 @@ void cudaD_apply_ceiling(dim3 Gr, dim3 Bl, double* mat, double ceiling_val, Matr
   _apply_ceiling<<<Gr,Bl>>>(mat, ceiling_val, d);
 }
 
+void cudaF_row_min(dim3 Gr, dim3 Bl, const float* mat, float* row_min, MatrixDim d) {
+  _row_min<<<Gr,Bl>>>(mat, row_min, d);
+}
+void cudaD_row_min(dim3 Gr, dim3 Bl, const double* mat, double* row_min, MatrixDim d) {
+  _row_min<<<Gr,Bl>>>(mat, row_min, d);
+}
+
+void cudaF_row_max(dim3 Gr, dim3 Bl, const float* mat, float* row_max, MatrixDim d) {
+  _row_max<<<Gr,Bl>>>(mat, row_max, d);
+}
+void cudaD_row_max(dim3 Gr, dim3 Bl, const double* mat, double* row_max, MatrixDim d) {
+  _row_max<<<Gr,Bl>>>(mat, row_max, d);
+}
 
 void cudaF_set_const(dim3 Gr, dim3 Bl, float* mat, float value, MatrixDim d) {
   _set_const<<<Gr,Bl>>>(mat,value,d); 
@@ -1028,6 +1099,7 @@ void cudaF_vec_max(const float* v, float* value, int dim) {
 void cudaD_vec_max(const double* v, double* value, int dim) {
   _vec_max<<<1,CU1DBLOCK>>>(v, value, dim);
 }
+
 
 void cudaF_add_diag_mat_mat(int Gr, int Bl, float alpha, float* v, int v_dim, const float* M, 
      int M_cols, int M_row_stride, int M_col_stride, const float *N, int N_row_stride, 

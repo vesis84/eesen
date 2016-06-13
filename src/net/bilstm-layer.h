@@ -44,8 +44,8 @@ public:
 
     Layer* Copy() const { return new BiLstm(*this); }
     LayerType GetType() const { return l_BiLstm; }
-    LayerType GetTypeNonParal() const { return l_BiLstm; }   
- 
+    LayerType GetTypeNonParal() const { return l_BiLstm; }
+
     void SetDropFactor(float drop_factor) {
       drop_factor_ = drop_factor;
     }
@@ -59,7 +59,7 @@ public:
       while (is >> std::ws, !is.eof()) {
         ReadToken(is, false, &token);
         if (token == "<ParamRange>")  ReadBasicType(is, false, &param_range);
-        else if (token == "<FgateBias>") ReadBasicType(is, false, &fgate_bias_init); 
+        else if (token == "<FgateBias>") ReadBasicType(is, false, &fgate_bias_init);
         else if (token == "<LearnRateCoef>") ReadBasicType(is, false, &learn_rate_coef_);
         else if (token == "<BiasLearnRateCoef>") ReadBasicType(is, false, &bias_learn_rate_coef_);
         else if (token == "<PholeLearnRateCoef>") ReadBasicType(is, false, &phole_learn_rate_coef_);
@@ -114,7 +114,7 @@ public:
           case 'G': ExpectToken(is, binary, "<GradClip>");
             ReadBasicType(is, binary, &grad_clip_);
             break;
-          // <MaxGrad> as alias of <GradClip> 
+          // <MaxGrad> as alias of <GradClip>
           case 'M': ExpectToken(is, binary, "<MaxGrad>");
             ReadBasicType(is, binary, &grad_clip_);
             break;
@@ -124,7 +124,7 @@ public:
           case 'D': ExpectToken(is, binary, "<DropFactor>");
             ReadBasicType(is, binary, &drop_factor_);
             break;
-          default: 
+          default:
             std::string token;
             ReadToken(is, false, &token);
             KALDI_ERR << "Unknown token: " << token;
@@ -195,21 +195,22 @@ public:
 
     // print statistics of the parameters
     std::string Info() const {
-        return std::string("    ") + 
-            "\n  wei_gifo_x_fw_  "   + MomentStatistics(wei_gifo_x_fw_) + 
+        return std::string("    ") +
+            "\n  wei_gifo_x_fw_  "   + MomentStatistics(wei_gifo_x_fw_) +
             "\n  wei_gifo_m_fw_  "   + MomentStatistics(wei_gifo_m_fw_) +
             "\n  bias_fw_  "         + MomentStatistics(bias_fw_) +
             "\n  phole_i_c_fw_  "      + MomentStatistics(phole_i_c_fw_) +
             "\n  phole_f_c_fw_  "      + MomentStatistics(phole_f_c_fw_) +
             "\n  phole_o_c_fw_  "      + MomentStatistics(phole_o_c_fw_) +
-            "\n  wei_gifo_x_bw_  "   + MomentStatistics(wei_gifo_x_bw_) +   
+            "\n  ---" +
+            "\n  wei_gifo_x_bw_  "   + MomentStatistics(wei_gifo_x_bw_) +
             "\n  wei_gifo_m_bw_  "   + MomentStatistics(wei_gifo_m_bw_) +
             "\n  bias_bw_  "         + MomentStatistics(bias_bw_) +
             "\n  phole_i_c_bw_  "      + MomentStatistics(phole_i_c_bw_) +
             "\n  phole_f_c_bw_  "      + MomentStatistics(phole_f_c_bw_) +
             "\n  phole_o_c_bw_  "      + MomentStatistics(phole_o_c_bw_);
     }
-  
+
     // print statistics of the gradients buffer
     std::string InfoGradient() const {
         CuSubMatrix<BaseFloat> YG_FW(propagate_buf_fw_.ColRange(0, cell_dim_));
@@ -245,66 +246,66 @@ public:
         CuSubMatrix<BaseFloat> DM_BW(backpropagate_buf_bw_.ColRange(6 * cell_dim_, cell_dim_));
 
         return std::string("") +
-          "( learn_rate_coef_ " + ToString(learn_rate_coef_) + 
+          "( learn_rate_coef_ " + ToString(learn_rate_coef_) +
           ", bias_learn_rate_coef_ " + ToString(bias_learn_rate_coef_) +
           ", phole_learn_rate_coef_ " + ToString(phole_learn_rate_coef_) +
           ", grad_clip_ " + ToString(grad_clip_) +
           ", cell_clip_ " + ToString(cell_clip_) + " )" +
           "\n  ### Gradients " +
-          "\n  wei_gifo_x_fw_corr_  "   + MomentStatistics(wei_gifo_x_fw_corr_) +
-          "\n  wei_gifo_m_fw_corr_  "   + MomentStatistics(wei_gifo_m_fw_corr_) +
-          "\n  bias_fw_corr_  "         + MomentStatistics(bias_fw_corr_) +
-          "\n  phole_i_c_fw_corr_  "      + MomentStatistics(phole_i_c_fw_corr_) +
-          "\n  phole_f_c_fw_corr_  "      + MomentStatistics(phole_f_c_fw_corr_) +
-          "\n  phole_o_c_fw_corr_  "      + MomentStatistics(phole_o_c_fw_corr_) +
+          "\n  wei_gifo_x_fw_corr_ "   + MomentStatistics(wei_gifo_x_fw_corr_) +
+          "\n  wei_gifo_m_fw_corr_ "   + MomentStatistics(wei_gifo_m_fw_corr_) +
+          "\n  bias_fw_corr_       "   + MomentStatistics(bias_fw_corr_) +
+          "\n  phole_i_c_fw_corr_  "     + MomentStatistics(phole_i_c_fw_corr_) +
+          "\n  phole_f_c_fw_corr_  "     + MomentStatistics(phole_f_c_fw_corr_) +
+          "\n  phole_o_c_fw_corr_  "     + MomentStatistics(phole_o_c_fw_corr_) +
           "\n  ---" +
-          "\n  wei_gifo_x_bw_corr_  "   + MomentStatistics(wei_gifo_x_bw_corr_) +
-          "\n  wei_gifo_m_bw_corr_  "   + MomentStatistics(wei_gifo_m_bw_corr_) +
-          "\n  bias_bw_corr_  "         + MomentStatistics(bias_bw_corr_) +
-          "\n  phole_i_c_bw_corr_  "      + MomentStatistics(phole_i_c_bw_corr_) +
-          "\n  phole_f_c_bw_corr_  "      + MomentStatistics(phole_f_c_bw_corr_) +
-          "\n  phole_o_c_bw_corr_  "      + MomentStatistics(phole_o_c_bw_corr_) +
+          "\n  wei_gifo_x_bw_corr_ "   + MomentStatistics(wei_gifo_x_bw_corr_) +
+          "\n  wei_gifo_m_bw_corr_ "   + MomentStatistics(wei_gifo_m_bw_corr_) +
+          "\n  bias_bw_corr_       "   + MomentStatistics(bias_bw_corr_) +
+          "\n  phole_i_c_bw_corr_  "     + MomentStatistics(phole_i_c_bw_corr_) +
+          "\n  phole_f_c_bw_corr_  "     + MomentStatistics(phole_f_c_bw_corr_) +
+          "\n  phole_o_c_bw_corr_  "     + MomentStatistics(phole_o_c_bw_corr_) +
           "\n" +
           "\n  ### Activations (mostly after non-linearities)" +
-          "\n  YI_FW(0..1)^  " + MomentStatistics(YI_FW) + 
-          "\n  YF_FW(0..1)^  " + MomentStatistics(YF_FW) + 
-          "\n  YO_FW(0..1)^  " + MomentStatistics(YO_FW) + 
-          "\n  YG_FW(-1..1)  " + MomentStatistics(YG_FW) + 
-          "\n  YC_FW(-R..R)* " + MomentStatistics(YC_FW) + 
-          "\n  YH_FW(-1..1)  " + MomentStatistics(YH_FW) + 
-          "\n  YM_FW(-1..1)  " + MomentStatistics(YM_FW) + 
+          "\n  YI_FW(0..1)^  " + MomentStatistics(YI_FW) +
+          "\n  YF_FW(0..1)^  " + MomentStatistics(YF_FW) +
+          "\n  YO_FW(0..1)^  " + MomentStatistics(YO_FW) +
+          "\n  YG_FW(-1..1)  " + MomentStatistics(YG_FW) +
+          "\n  YC_FW(-R..R)* " + MomentStatistics(YC_FW) +
+          "\n  YH_FW(-1..1)  " + MomentStatistics(YH_FW) +
+          "\n  YM_FW(-1..1)  " + MomentStatistics(YM_FW) +
           "\n  ---" +
-          "\n  YI_BW(0..1)^  " + MomentStatistics(YI_BW) + 
-          "\n  YF_BW(0..1)^  " + MomentStatistics(YF_BW) + 
-          "\n  YO_BW(0..1)^  " + MomentStatistics(YO_BW) + 
-          "\n  YG_BW(-1..1)  " + MomentStatistics(YG_BW) + 
-          "\n  YC_BW(-R..R)* " + MomentStatistics(YC_BW) + 
-          "\n  YH_BW(-1..1)  " + MomentStatistics(YH_BW) + 
-          "\n  YM_BW(-1..1)  " + MomentStatistics(YM_BW) + 
+          "\n  YI_BW(0..1)^  " + MomentStatistics(YI_BW) +
+          "\n  YF_BW(0..1)^  " + MomentStatistics(YF_BW) +
+          "\n  YO_BW(0..1)^  " + MomentStatistics(YO_BW) +
+          "\n  YG_BW(-1..1)  " + MomentStatistics(YG_BW) +
+          "\n  YC_BW(-R..R)* " + MomentStatistics(YC_BW) +
+          "\n  YH_BW(-1..1)  " + MomentStatistics(YH_BW) +
+          "\n  YM_BW(-1..1)  " + MomentStatistics(YM_BW) +
           "\n" +
           "\n  ### Derivatives (w.r.t. inputs of non-linearities)" +
-          "\n  DI_FW^  " + MomentStatistics(DI_FW) + 
-          "\n  DF_FW^  " + MomentStatistics(DF_FW) + 
-          "\n  DO_FW^  " + MomentStatistics(DO_FW) + 
-          "\n  DG_FW   " + MomentStatistics(DG_FW) + 
-          "\n  DC_FW*  " + MomentStatistics(DC_FW) + 
-          "\n  DH_FW   " + MomentStatistics(DH_FW) + 
-          "\n  DM_FW   " + MomentStatistics(DM_FW) + 
+          "\n  DI_FW^ " + MomentStatistics(DI_FW) +
+          "\n  DF_FW^ " + MomentStatistics(DF_FW) +
+          "\n  DO_FW^ " + MomentStatistics(DO_FW) +
+          "\n  DG_FW  " + MomentStatistics(DG_FW) +
+          "\n  DC_FW* " + MomentStatistics(DC_FW) +
+          "\n  DH_FW  " + MomentStatistics(DH_FW) +
+          "\n  DM_FW  " + MomentStatistics(DM_FW) +
           "\n  ---" +
-          "\n  DI_BW^  " + MomentStatistics(DI_BW) + 
-          "\n  DF_BW^  " + MomentStatistics(DF_BW) + 
-          "\n  DO_BW^  " + MomentStatistics(DO_BW) + 
-          "\n  DG_BW   " + MomentStatistics(DG_BW) + 
-          "\n  DC_BW*  " + MomentStatistics(DC_BW) + 
-          "\n  DH_BW   " + MomentStatistics(DH_BW) + 
-          "\n  DM_BW   " + MomentStatistics(DM_BW); 
+          "\n  DI_BW^ " + MomentStatistics(DI_BW) +
+          "\n  DF_BW^ " + MomentStatistics(DF_BW) +
+          "\n  DO_BW^ " + MomentStatistics(DO_BW) +
+          "\n  DG_BW  " + MomentStatistics(DG_BW) +
+          "\n  DC_BW* " + MomentStatistics(DC_BW) +
+          "\n  DH_BW  " + MomentStatistics(DH_BW) +
+          "\n  DM_BW  " + MomentStatistics(DM_BW);
     }
 
     // the feedforward pass
     void PropagateFnc(const CuMatrixBase<BaseFloat> &in, CuMatrixBase<BaseFloat> *out) {
         int32 T = in.NumRows();  // total number of frames
         // resize & clear propagation buffers for the forward sub-layer. [0] - the initial states with all the values to be 0
-        // [1, T] - correspond to the inputs  [T+1] - not used; for alignment with the backward layer 
+        // [1, T] - correspond to the inputs  [T+1] - not used; for alignment with the backward layer
         propagate_buf_fw_.Resize(T + 2, 7 * cell_dim_, kSetZero);
         // resize & clear propagation buffers for the backward sub-layer
         propagate_buf_bw_.Resize(T + 2, 7 * cell_dim_, kSetZero);
@@ -329,14 +330,14 @@ public:
 
           for (int t = 1; t <= T; t++) {
             // variables representing invidivual units/gates. we additionally use the Matrix forms
-            // because we want to take advantage of the Mat.Sigmoid and Mat.Tanh function.  
-            CuSubVector<BaseFloat> y_g(YG.Row(t));  CuSubMatrix<BaseFloat> YG_t(YG.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_i(YI.Row(t));  CuSubMatrix<BaseFloat> YI_t(YI.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_f(YF.Row(t));  CuSubMatrix<BaseFloat> YF_t(YF.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_o(YO.Row(t));  CuSubMatrix<BaseFloat> YO_t(YO.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_c(YC.Row(t));  CuSubMatrix<BaseFloat> YC_t(YC.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_h(YH.Row(t));  CuSubMatrix<BaseFloat> YH_t(YH.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_m(YM.Row(t));  CuSubMatrix<BaseFloat> YM_t(YM.RowRange(t,1));  
+            // because we want to take advantage of the Mat.Sigmoid and Mat.Tanh function.
+            CuSubVector<BaseFloat> y_g(YG.Row(t));  CuSubMatrix<BaseFloat> YG_t(YG.RowRange(t,1));
+            CuSubVector<BaseFloat> y_i(YI.Row(t));  CuSubMatrix<BaseFloat> YI_t(YI.RowRange(t,1));
+            CuSubVector<BaseFloat> y_f(YF.Row(t));  CuSubMatrix<BaseFloat> YF_t(YF.RowRange(t,1));
+            CuSubVector<BaseFloat> y_o(YO.Row(t));  CuSubMatrix<BaseFloat> YO_t(YO.RowRange(t,1));
+            CuSubVector<BaseFloat> y_c(YC.Row(t));  CuSubMatrix<BaseFloat> YC_t(YC.RowRange(t,1));
+            CuSubVector<BaseFloat> y_h(YH.Row(t));  CuSubMatrix<BaseFloat> YH_t(YH.RowRange(t,1));
+            CuSubVector<BaseFloat> y_m(YM.Row(t));  CuSubMatrix<BaseFloat> YM_t(YM.RowRange(t,1));
             CuSubVector<BaseFloat> y_gifo(YGIFO.Row(t));
             // add the recurrence of the previous memory cell to various gates/units
             y_gifo.AddMatVec(1.0, wei_gifo_m_fw_, kNoTrans, YM.Row(t-1), 1.0);
@@ -353,10 +354,8 @@ public:
             y_c.AddVecVec(1.0, y_i, y_g, 0.0);
             y_c.AddVecVec(1.0, y_f, YC.Row(t-1), 1.0);
             // clipping the activation in memory cell 'c',
-            YC_t.ApplyFloor(-cell_clip_); 
+            YC_t.ApplyFloor(-cell_clip_);
             YC_t.ApplyCeiling(cell_clip_);
-            KALDI_ASSERT(y_c.Min() >= -cell_clip_);
-            KALDI_ASSERT(y_c.Max() <= cell_clip_);
             // h - the tanh-squashed version of c
             YH_t.Tanh(YC_t);
 
@@ -371,7 +370,7 @@ public:
 
         // the backward layer; follows the same procedures, but iterates from t=T to t=1
         if (1) {
-          CuSubMatrix<BaseFloat> YG(propagate_buf_bw_.ColRange(0, cell_dim_)); 
+          CuSubMatrix<BaseFloat> YG(propagate_buf_bw_.ColRange(0, cell_dim_));
           CuSubMatrix<BaseFloat> YI(propagate_buf_bw_.ColRange(1 * cell_dim_, cell_dim_));
           CuSubMatrix<BaseFloat> YF(propagate_buf_bw_.ColRange(2 * cell_dim_, cell_dim_));
           CuSubMatrix<BaseFloat> YO(propagate_buf_bw_.ColRange(3 * cell_dim_, cell_dim_));
@@ -407,10 +406,8 @@ public:
             y_c.AddVecVec(1.0, y_i, y_g, 0.0);
             y_c.AddVecVec(1.0, y_f, YC.Row(t+1), 1.0);
             // clipping the activation in memory cell 'c',
-            YC_t.ApplyFloor(-cell_clip_); 
+            YC_t.ApplyFloor(-cell_clip_);
             YC_t.ApplyCeiling(cell_clip_);
-            KALDI_ASSERT(y_c.Min() >= -cell_clip_);
-            KALDI_ASSERT(y_c.Max() <= cell_clip_);
             // h, the tanh-squashed version of c
             YH_t.Tanh(YC_t);
 
@@ -449,7 +446,11 @@ public:
           const CuSubMatrix<BaseFloat> YC(propagate_buf_fw_.ColRange(4 * cell_dim_, cell_dim_));
           const CuSubMatrix<BaseFloat> YH(propagate_buf_fw_.ColRange(5 * cell_dim_, cell_dim_));
           const CuSubMatrix<BaseFloat> YM(propagate_buf_fw_.ColRange(6 * cell_dim_, cell_dim_));
-    
+
+          // check clipping,
+          KALDI_ASSERT(YC.Min() >= -cell_clip_);
+          KALDI_ASSERT(YC.Max() <= cell_clip_);
+
           // errors back-propagated to individual gates/units
           CuSubMatrix<BaseFloat> DG(backpropagate_buf_fw_.ColRange(0, cell_dim_));
           CuSubMatrix<BaseFloat> DI(backpropagate_buf_fw_.ColRange(1 * cell_dim_, cell_dim_));
@@ -465,14 +466,14 @@ public:
 
           for (int t = T; t >= 1; t--) {
             // variables representing activations of invidivual units/gates
-            const CuSubVector<BaseFloat> y_g(YG.Row(t));  const CuSubMatrix<BaseFloat> YG_t(YG.RowRange(t,1));  
-            const CuSubVector<BaseFloat> y_i(YI.Row(t));  const CuSubMatrix<BaseFloat> YI_t(YI.RowRange(t,1));  
-            const CuSubVector<BaseFloat> y_f(YF.Row(t));  const CuSubMatrix<BaseFloat> YF_t(YF.RowRange(t,1));  
-            const CuSubVector<BaseFloat> y_o(YO.Row(t));  const CuSubMatrix<BaseFloat> YO_t(YO.RowRange(t,1));  
-            const CuSubVector<BaseFloat> y_c(YC.Row(t));  const CuSubMatrix<BaseFloat> YC_t(YC.RowRange(t,1));  
-            const CuSubVector<BaseFloat> y_h(YH.Row(t));  const CuSubMatrix<BaseFloat> YH_t(YH.RowRange(t,1));  
-            const CuSubVector<BaseFloat> y_m(YM.Row(t));  const CuSubMatrix<BaseFloat> YM_t(YM.RowRange(t,1));  
-            // variables representing errors of invidivual units/gates 
+            const CuSubVector<BaseFloat> y_g(YG.Row(t));  const CuSubMatrix<BaseFloat> YG_t(YG.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_i(YI.Row(t));  const CuSubMatrix<BaseFloat> YI_t(YI.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_f(YF.Row(t));  const CuSubMatrix<BaseFloat> YF_t(YF.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_o(YO.Row(t));  const CuSubMatrix<BaseFloat> YO_t(YO.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_c(YC.Row(t));  const CuSubMatrix<BaseFloat> YC_t(YC.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_h(YH.Row(t));  const CuSubMatrix<BaseFloat> YH_t(YH.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_m(YM.Row(t));  const CuSubMatrix<BaseFloat> YM_t(YM.RowRange(t,1));
+            // variables representing errors of invidivual units/gates
             CuSubVector<BaseFloat> d_g(DG.Row(t));  CuSubMatrix<BaseFloat> DG_t(DG.RowRange(t,1));
             CuSubVector<BaseFloat> d_i(DI.Row(t));  CuSubMatrix<BaseFloat> DI_t(DI.RowRange(t,1));
             CuSubVector<BaseFloat> d_f(DF.Row(t));  CuSubMatrix<BaseFloat> DF_t(DF.RowRange(t,1));
@@ -480,33 +481,33 @@ public:
             CuSubVector<BaseFloat> d_c(DC.Row(t));  CuSubMatrix<BaseFloat> DC_t(DC.RowRange(t,1));
             CuSubVector<BaseFloat> d_h(DH.Row(t));  CuSubMatrix<BaseFloat> DH_t(DH.RowRange(t,1));
             CuSubVector<BaseFloat> d_m(DM.Row(t));  CuSubMatrix<BaseFloat> DM_t(DM.RowRange(t,1));
-    
+
             // d_m comes from two parts: errors from the upper layer and errors from the following frame (t+1)
             d_m.AddMatVec(1.0, wei_gifo_m_fw_, kTrans, DGIFO.Row(t+1), 1.0);
-    
+
             // d_h
             d_h.AddVecVec(1.0, y_o, d_m, 0.0);
             DH_t.DiffTanh(YH_t, DH_t);
-    
+
             // d_o - output gate
             d_o.AddVecVec(1.0, y_h, d_m, 0.0);
             DO_t.DiffSigmoid(YO_t, DO_t);
-    
+
             // d_c - memory cell
-            d_c.AddVec(1.0, d_h, 0.0);  
+            d_c.AddVec(1.0, d_h, 0.0);
             d_c.AddVecVec(1.0, phole_o_c_fw_, d_o, 1.0);
             d_c.AddVecVec(1.0, YF.Row(t+1), DC.Row(t+1), 1.0);
             d_c.AddVecVec(1.0, phole_f_c_fw_, DF.Row(t+1), 1.0);
             d_c.AddVecVec(1.0, phole_i_c_fw_, DI.Row(t+1), 1.0);
-    
+
             // d_f - forge gate
             d_f.AddVecVec(1.0, YC.Row(t-1), d_c, 0.0);
             DF_t.DiffSigmoid(YF_t, DF_t);
-    
+
             // d_i - input gate
             d_i.AddVecVec(1.0, y_g, d_c, 0.0);
             DI_t.DiffSigmoid(YI_t, DI_t);
-    
+
             // d_g
             d_g.AddVecVec(1.0, y_i, d_c, 0.0);
             DG_t.DiffTanh(YG_t, DG_t);
@@ -514,7 +515,7 @@ public:
 
           // errors back-propagated to the inputs
           in_diff->AddMatMat(1.0, DGIFO.RowRange(1,T), kNoTrans, wei_gifo_x_fw_, kNoTrans, 0.0);
-          // updates to the model parameters 
+          // updates to the model parameters
           const BaseFloat mmt = opts_.momentum;
           wei_gifo_x_fw_corr_.AddMatMat(1.0, DGIFO.RowRange(1,T), kTrans, in, kNoTrans, mmt);
           wei_gifo_m_fw_corr_.AddMatMat(1.0, DGIFO.RowRange(1,T), kTrans, YM.RowRange(0,T), kNoTrans, mmt);
@@ -597,7 +598,7 @@ public:
             DG_t.DiffTanh(YG_t, DG_t);
           }  // end of t
 
-          // errors back-propagated to the inputs 
+          // errors back-propagated to the inputs
           in_diff->AddMatMat(1.0, DGIFO.RowRange(1,T), kNoTrans, wei_gifo_x_bw_, kNoTrans, 1.0);
           // updates to the parameters
           const BaseFloat mmt = opts_.momentum;
@@ -611,7 +612,7 @@ public:
     }
 
     void Update(const CuMatrixBase<BaseFloat> &input, const CuMatrixBase<BaseFloat> &diff) {
-      // clip gradients 
+      // clip gradients
       if (grad_clip_ > 0) {
         wei_gifo_x_fw_corr_.ApplyFloor(-grad_clip_); wei_gifo_x_fw_corr_.ApplyCeiling(grad_clip_);
         wei_gifo_m_fw_corr_.ApplyFloor(-grad_clip_); wei_gifo_m_fw_corr_.ApplyCeiling(grad_clip_);
@@ -670,7 +671,7 @@ public:
       phole_i_c_fw_.AddVec(scale, other->phole_i_c_fw_);
       phole_f_c_fw_.AddVec(scale, other->phole_f_c_fw_);
       phole_o_c_fw_.AddVec(scale, other->phole_o_c_fw_);
-      
+
       wei_gifo_x_bw_.AddMat(scale, other->wei_gifo_x_bw_);
       wei_gifo_m_bw_.AddMat(scale, other->wei_gifo_m_bw_);
       bias_bw_.AddVec(scale, other->bias_bw_);
@@ -704,7 +705,7 @@ public:
       wei_copy->Range(offset, size).CopyFromVec(phole_f_c_fw_); offset += size;
       size = phole_o_c_fw_.Dim();
       wei_copy->Range(offset, size).CopyFromVec(phole_o_c_fw_); offset += size;
-      
+
       // copy parameters of the backward sub-layer
       size = wei_gifo_x_bw_.NumRows() * wei_gifo_x_bw_.NumCols();
       wei_copy->Range(offset, size).CopyRowsFromMat(wei_gifo_x_bw_); offset += size;

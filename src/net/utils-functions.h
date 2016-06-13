@@ -57,9 +57,9 @@ std::string MomentStatistics(const VectorBase<Real> &vec) {
   vec_aux.Add(-mean); vec_no_mean = vec_aux;
   vec_aux.MulElements(vec_no_mean); // (vec-mean)^2
   Real variance = vec_aux.Sum() / vec.Dim();
-  // skewness 
-  // - negative : left tail is longer, 
-  // - positive : right tail is longer, 
+  // skewness
+  // - negative : left tail is longer,
+  // - positive : right tail is longer,
   // - zero : symmetric
   vec_aux.MulElements(vec_no_mean); // (vec-mean)^3
   Real skewness = vec_aux.Sum() / pow(variance, 3.0/2.0) / vec.Dim();
@@ -73,10 +73,11 @@ std::string MomentStatistics(const VectorBase<Real> &vec) {
   // send the statistics to stream,
   std::ostringstream ostr;
   ostr << " ( min " << vec.Min() << ", max " << vec.Max()
-       << ", mean " << mean 
+       << ", mean " << mean
        << ", stddev " << sqrt(variance)
        << ", skewness " << skewness
        << ", kurtosis " << kurtosis
+       << ", L2-norm " << vec.Norm(2.0)
        << " ) ";
   return ostr.str();
 }

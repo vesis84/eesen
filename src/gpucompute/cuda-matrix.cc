@@ -450,31 +450,47 @@ Real CuMatrixBase<Real>::Sum() const {
 
 template<typename Real>
 Real CuMatrixBase<Real>::Max() const {
-  Timer tim;
-  // TODO rewrite in CUDA,
-  Matrix<Real> tmp(NumRows(), NumCols(), kUndefined);
-  CopyToMat(&tmp);
-  Real ans = tmp.Max();
+  Real ans;
 #if HAVE_CUDA == 1
   if (CuDevice::Instantiate().Enabled()) {
+    Timer tim;
+    CuVector<Real> max_in_row(NumRows());
+
+    dim3 dimBlock(CU1DBLOCK, 1);
+    dim3 dimGrid(1, num_rows_);
+
+    cuda_row_max(dimGrid, dimBlock, data_, max_in_row.Data(), Dim());
+    ans = max_in_row.Max(); // max,
+
     CuDevice::Instantiate().AccuProfile(__func__, tim.Elapsed());
-  }
+  } else
 #endif
+  {
+    ans = Mat().Max();
+  }
   return ans;
 }
 
 template<typename Real>
 Real CuMatrixBase<Real>::Min() const {
-  Timer tim;
-  // TODO rewrite in CUDA,
-  Matrix<Real> tmp(NumRows(), NumCols(), kUndefined);
-  CopyToMat(&tmp);
-  Real ans = tmp.Min();
+  Real ans;
 #if HAVE_CUDA == 1
   if (CuDevice::Instantiate().Enabled()) {
+    Timer tim;
+    CuVector<Real> min_in_row(NumRows());
+
+    dim3 dimBlock(CU1DBLOCK, 1);
+    dim3 dimGrid(1, num_rows_);
+
+    cuda_row_min(dimGrid, dimBlock, data_, min_in_row.Data(), Dim());
+    ans = min_in_row.Min(); // min,
+
     CuDevice::Instantiate().AccuProfile(__func__, tim.Elapsed());
-  }
+  } else
 #endif
+  {
+    ans = Mat().Min();
+  }
   return ans;
 }
 

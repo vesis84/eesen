@@ -56,6 +56,13 @@ void cudaD_apply_ceiling(dim3 Gr, dim3 Bl, double* mat, double ceiling_val, Matr
 void cudaF_apply_heaviside(dim3 Gr, dim3 Bl, float* mat, MatrixDim d);
 void cudaD_apply_heaviside(dim3 Gr, dim3 Bl, double* mat, MatrixDim d);
 
+void cudaF_row_min(dim3 Gr, dim3 Bl, const float* mat, float* row_min, MatrixDim d);
+void cudaD_row_min(dim3 Gr, dim3 Bl, const double* mat, double* row_min, MatrixDim d);
+
+void cudaF_row_max(dim3 Gr, dim3 Bl, const float* mat, float* row_max, MatrixDim d);
+void cudaD_row_max(dim3 Gr, dim3 Bl, const double* mat, double* row_max, MatrixDim d);
+
+
 void cudaF_set_const(dim3 Gr, dim3 Bl, float *mat, float value, MatrixDim d);
 void cudaD_set_const(dim3 Gr, dim3 Bl, double *mat, double value, MatrixDim d);
 

@@ -68,6 +68,12 @@ inline void cuda_apply_floor(dim3 Gr, dim3 Bl, double* mat, double floor_val, Ma
 inline void cuda_apply_ceiling(dim3 Gr, dim3 Bl, float* mat, float ceiling_val, MatrixDim dim) { cudaF_apply_ceiling(Gr,Bl,mat,ceiling_val,dim); }
 inline void cuda_apply_ceiling(dim3 Gr, dim3 Bl, double* mat, double ceiling_val, MatrixDim dim) { cudaD_apply_ceiling(Gr,Bl,mat,ceiling_val,dim); }
 
+inline void cuda_row_min(dim3 Gr, dim3 Bl, const float* mat, float* row_min, MatrixDim dim) { cudaF_row_min(Gr,Bl,mat,row_min,dim); }
+inline void cuda_row_min(dim3 Gr, dim3 Bl, const double* mat, double* row_min, MatrixDim dim) { cudaD_row_min(Gr,Bl,mat,row_min,dim); }
+
+inline void cuda_row_max(dim3 Gr, dim3 Bl, const float* mat, float* row_max, MatrixDim dim) { cudaF_row_max(Gr,Bl,mat,row_max,dim); }
+inline void cuda_row_max(dim3 Gr, dim3 Bl, const double* mat, double* row_max, MatrixDim dim) { cudaD_row_max(Gr,Bl,mat,row_max,dim); }
+
 inline void cuda_apply_heaviside(dim3 Gr, dim3 Bl, float* mat, MatrixDim dim) { cudaF_apply_heaviside(Gr,Bl,mat,dim); }
 inline void cuda_apply_heaviside(dim3 Gr, dim3 Bl, double* mat, MatrixDim dim) { cudaD_apply_heaviside(Gr,Bl,mat,dim); }
 
@@ -112,6 +118,7 @@ inline void cuda_vec_min(const double* v, double* value, int dim) { cudaD_vec_mi
 
 inline void cuda_vec_max(const float* v, float* value, int dim) { cudaF_vec_max(v,value,dim); }
 inline void cuda_vec_max(const double* v, double* value, int dim) { cudaD_vec_max(v,value,dim); }
+
 
 inline void cuda_add_diag_mat_mat(int Gr, int Bl, float alpha, float* v, int v_dim, const float* M, 
                                   int M_cols, int M_row_stride, int M_col_stride, const float *N, int N_row_stride, 

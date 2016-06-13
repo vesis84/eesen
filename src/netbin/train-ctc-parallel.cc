@@ -29,8 +29,8 @@ typedef eesen::int32 int32;
 
 int main(int argc, char *argv[]) {
   using namespace eesen;
-  typedef eesen::int32 int32;  
-  
+  typedef eesen::int32 int32;
+
   try {
     const char *usage =
         "Perform one iteration of CTC training by SGD.\n"
@@ -43,9 +43,9 @@ int main(int argc, char *argv[]) {
     ParseOptions po(usage);
 
     NetTrainOptions trn_opts;  // training options
-    trn_opts.Register(&po); 
+    trn_opts.Register(&po);
 
-    bool binary = true, 
+    bool binary = true,
          crossvalidate = false;
     po.Register("binary", &binary, "Write model  in binary mode");
     po.Register("cross-validate", &crossvalidate, "Perform cross-validation (no backpropagation)");
@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
     po.Register("report-step", &report_step, "Step (number of sequences) for status reporting");
 
     std::string use_gpu="yes";
-//    po.Register("use-gpu", &use_gpu, "yes|no|optional, only has effect if compiled with CUDA"); 
+//    po.Register("use-gpu", &use_gpu, "yes|no|optional, only has effect if compiled with CUDA");
 
     int32 num_jobs = 1;
     po.Register("num-jobs", &num_jobs, "Number subjobs in multi-GPU mode");
@@ -81,7 +81,7 @@ int main(int argc, char *argv[]) {
     std::string feature_rspecifier = po.GetArg(1),
       targets_rspecifier = po.GetArg(2),
       model_filename = po.GetArg(3);
-        
+
     std::string target_model_filename;
     if (!crossvalidate) {
       target_model_filename = po.GetArg(4);
@@ -128,7 +128,7 @@ int main(int argc, char *argv[]) {
     while (1) {
 
       std::vector<int> frame_num_utt;
-      int32 sequence_index = 0, max_frame_num = 0; 
+      int32 sequence_index = 0, max_frame_num = 0;
 
       for ( ; !feature_reader.Done(); feature_reader.Next()) {
         std::string utt = feature_reader.Key();
@@ -166,7 +166,7 @@ int main(int argc, char *argv[]) {
         }
       }
       int32 cur_sequence_num = frame_num_utt.size();
-      
+
       // Create the final feature matrix. Every utterance is padded to the max length within this group of utterances
       Matrix<BaseFloat> feat_mat_host(cur_sequence_num * max_frame_num, feat_dim, kSetZero);
       for (int s = 0; s < cur_sequence_num; s++) {
@@ -174,7 +174,7 @@ int main(int argc, char *argv[]) {
         for (int r = 0; r < frame_num_utt[s]; r++) {
           feat_mat_host.Row(r*cur_sequence_num + s).CopyFromVec(mat_tmp.Row(r));
         }
-      }        
+      }
       // Set the original lengths of utterances before padding
       net.SetSeqLengths(frame_num_utt);
 
@@ -194,22 +194,26 @@ int main(int argc, char *argv[]) {
           avg_count++;
         }
       }
-     
+
       // Print statistics of gradients coming from the the 1st update,
+      if (num_done == 0) {
+        KALDI_LOG << net.Info();
+      }
       if (!crossvalidate && num_done == 0) {
         KALDI_LOG << net.InfoGradient();
       }
       // Print statistics of gradients every N sentences,
-      int32 N = 5000;
+      int32 N = 5 * report_step;
       if (!crossvalidate) {
         if ((num_done + cur_sequence_num) / N > num_done / N) {
+          KALDI_LOG << net.Info();
           KALDI_LOG << net.InfoGradient();
         }
       }
 
       num_done += cur_sequence_num;
       total_frames += feat_mat_host.NumRows();
-      
+
       if (feature_reader.Done()) break; // end loop of while(1)
     }
 
@@ -229,9 +233,10 @@ int main(int argc, char *argv[]) {
         }
       }
     }
-     
-    // Print statistics of gradients when training finishes 
+
+    // Print statistics of gradients when training finishes
     if (!crossvalidate) {
+      KALDI_LOG << net.Info();
       KALDI_LOG << net.InfoGradient();
     }
 
