@@ -41,12 +41,41 @@
 
 namespace eesen {
 
+/**
+   This function was added by Dan in July 2015 after upgrading on the CLSP
+   cluster to the CUDA 7.0 toolkit; the old mechanism of just calling
+   cudaThreadSynchronize() [==cudaDeviceSynchronize()] and having it
+   automagically select a GPU (when exclusive mode is on) doesn't seem to work
+   any more, in situations where GPU 0 is already being used.  This works.  It's
+   not 100% clear if the fact that the old code wasn't working was a bug, or a
+   changed feature (the NVidia docs were never super-clear regarding device
+   initialization).  But regardless, changing to this new mechanism should be
+   harmless even if the problem was specific to the CLSP grid.
+*/
 
-/** 
- * SelectGpuId(use_gpu) 
+static bool GetCudaContext(int32 num_gpus, std::string *debug_str) {
+  std::ostringstream debug_stream;
+  debug_stream << "num-gpus=" << num_gpus << ". ";
+  for (int32 device = 0; device < num_gpus; device++) {
+    cudaSetDevice(device);
+    cudaError_t e = cudaDeviceSynchronize(); // << CUDA context gets created here.
+    if (e == cudaSuccess) {
+      *debug_str = debug_stream.str();
+      return true;
+    }
+    debug_stream << "Device " << device << ": " << cudaGetErrorString(e) << ".  ";
+    cudaGetLastError();  // Make sure the error state doesn't get returned in
+                         // the next cudaGetLastError().
+  }
+  *debug_str = debug_stream.str();
+  return false;
+}
+
+/**
+ * SelectGpuId(use_gpu)
  *
  * There are 3 'use_gpu' modes for GPU selection:
- * "yes"      -- Select GPU automatically (or get one by exclusive mode) 
+ * "yes"      -- Select GPU automatically (or get one by exclusive mode)
  *               and die if this fails.
  * "optional" -- Do as above, but if it fails, back off to CPU.
  * "no"       -- Run on CPU.
@@ -62,28 +91,30 @@ namespace eesen {
  *
  */
 void CuDevice::SelectGpuId(std::string use_gpu) {
-  // Possible modes  
+  // Possible modes
   if (use_gpu != "yes" && use_gpu != "no" && use_gpu != "optional" && use_gpu != "wait") {
     KALDI_ERR << "Please choose : --use-gpu=yes|no|optional|wait, passed '" << use_gpu << "'";
   }
- 
+
   // Make sure this function is not called twice!
   if (Enabled()) {
-    KALDI_ERR << "There is already an active GPU " << active_gpu_id_ 
+    KALDI_ERR << "There is already an active GPU " << active_gpu_id_
               << ", cannot change it on the fly!";
   }
   // Allow the GPU to stay disabled
-  if(!Enabled() && use_gpu == "no") { 
+  if (!Enabled() && use_gpu == "no") {
     KALDI_LOG << "Manually selected to compute on CPU.";
     return;
   }
 
   // Check that we have a gpu available
-  int32 n_gpu = 0;
-  cudaGetDeviceCount(&n_gpu);
-  if (n_gpu == 0) {
+  int32 num_gpus = 0;
+
+  cudaError_t e = cudaGetDeviceCount(&num_gpus);
+
+  if (num_gpus == 0) {
     if (use_gpu == "yes" || use_gpu == "wait") {
-      KALDI_ERR << "No CUDA GPU detected!";
+      KALDI_CUDA_ERR(e, "No CUDA GPU detected!");
     }
     if (use_gpu == "optional") {
       KALDI_WARN << "Running on CPU!!! No CUDA GPU detected...";
@@ -91,26 +122,25 @@ void CuDevice::SelectGpuId(std::string use_gpu) {
     }
   }
 
-  //
-  // Create a CUDA context : in case of compute-exclusive mode OS selects gpu_id,
-  // or default gpu_id=0. In the case with no free GPUs a context cannot be created
-  // (compute-exclusive mode).
-  //
-  cudaError_t e;
-  e = cudaThreadSynchronize(); //<< CUDA context gets created here.
+  // Create a CUDA context.
+  std::string debug_str;
+  bool got_context = GetCudaContext(num_gpus, &debug_str);
 
   if (use_gpu != "wait") {
-    if (e != cudaSuccess) {
+    if (!got_context) {
       // So far no we don't have context, sleep a bit and retry.
       int32 sec_sleep = (use_gpu == "yes" ? 20 : 2);
-      KALDI_WARN << "Will try again to get a GPU after " << sec_sleep 
-        << " seconds.";
+      KALDI_WARN << "Will try again to get a GPU after " << sec_sleep
+                 << " seconds.";
       sleep(sec_sleep);
-      cudaGetLastError(); // reset the error state    
-      e = cudaThreadSynchronize(); //<< 2nd trial to get CUDA context.
-      if (e != cudaSuccess) {
+      if (!GetCudaContext(num_gpus, &debug_str)) {
         if (use_gpu == "yes") {
-          KALDI_ERR << "Failed to create CUDA context, no more unused GPUs?";
+          {
+            Input input;
+            input.Open("nvidia-smi 1>&2 |");
+          }
+          KALDI_LOG << debug_str;
+          KALDI_ERR << "Failed to create CUDA context, no more unused GPUs? ";
         }
         if (use_gpu == "optional") {
           KALDI_WARN << "Running on CPU!!! No more unused CUDA GPUs?";
@@ -121,16 +151,15 @@ void CuDevice::SelectGpuId(std::string use_gpu) {
   } else {
     int32 num_times = 0;
     BaseFloat wait_time = 0.0;
-    while (e != cudaSuccess) {
+    while (! got_context) {
       int32 sec_sleep = 5;
       if (num_times == 0)
-        KALDI_WARN << "Will try again indefinitely every " << sec_sleep 
+        KALDI_WARN << "Will try again indefinitely every " << sec_sleep
                    << " seconds to get a GPU.";
       num_times++;
       wait_time += sec_sleep;
       sleep(sec_sleep);
-      cudaGetLastError(); // reset the error state    
-      e = cudaThreadSynchronize();
+      got_context = GetCudaContext(num_gpus, &debug_str);
     }
 
     KALDI_WARN << "Waited " << wait_time
@@ -140,20 +169,20 @@ void CuDevice::SelectGpuId(std::string use_gpu) {
   // Re-assure we have the context
   KALDI_ASSERT(cudaSuccess == cudaThreadSynchronize());
 
-  // Check if the machine use compute exclusive mode 
+  // Check if the machine use compute exclusive mode
   if (IsComputeExclusive()) {
     FinalizeActiveGpu();
     return;
   } else {
     // Or suggest to use compute exclusive mode
-    if(n_gpu > 1) { 
+    if (num_gpus > 1) {
       KALDI_WARN << "Suggestion: use 'nvidia-smi -c 1' to set compute exclusive mode";
     }
     // And select the GPU according to proportion of free memory
-    if(SelectGpuIdAuto()) {
+    if (SelectGpuIdAuto()) {
       FinalizeActiveGpu();
       return;
-    } else { 
+    } else {
       // Could not get GPU, after prevously having the CUDA context?
       // Strange but not impossible...
       if (use_gpu == "yes") {
@@ -175,13 +204,12 @@ void CuDevice::FinalizeActiveGpu() {
   // Get the device-id of active device:
   {
     int32 act_gpu_id;
-    cudaError_t e;
-    e = cudaGetDevice(&act_gpu_id);
-    if(e != cudaSuccess) {
-      KALDI_ERR << "Failed to get device-id of active device.";
+    cudaError_t e = cudaGetDevice(&act_gpu_id);
+    if (e != cudaSuccess) {
+      KALDI_CUDA_ERR(e, "Failed to get device-id of active device.");
     }
-    // Remember the id of active GPU 
-    active_gpu_id_ = act_gpu_id; //CuDevice::Enabled() is true from now on
+    // Remember the id of active GPU
+    active_gpu_id_ = act_gpu_id; // CuDevice::Enabled() is true from now on
     // Initialize the CUBLAS
     CU_SAFE_CALL(cublasInit());
 
@@ -190,12 +218,10 @@ void CuDevice::FinalizeActiveGpu() {
     DeviceGetName(name,128,act_gpu_id);
 
     CU_SAFE_CALL(cudaGetDeviceProperties(&properties_, act_gpu_id));
-    
+
     KALDI_LOG << "The active GPU is [" << act_gpu_id << "]: " << name << "\t"
               << GetFreeMemory(&free_memory_at_startup_, NULL) << " version "
               << properties_.major << "." << properties_.minor;
-
-    if (verbose_) PrintMemoryUsage();
   }
   return;
 }
@@ -215,13 +241,13 @@ bool CuDevice::IsComputeExclusive() {
   // get the device-id and its device-properties
   int32 gpu_id = -1;
   cudaError_t e = cudaGetDevice(&gpu_id);
-  if(e != cudaSuccess) {
-    KALDI_ERR << "Failed to get current device";
+  if (e != cudaSuccess) {
+    KALDI_CUDA_ERR(e, "Failed to get current device");
   }
   struct cudaDeviceProp gpu_prop;
   e = cudaGetDeviceProperties(&gpu_prop, gpu_id);
-  if(e != cudaSuccess) {
-    KALDI_ERR << "Failed to get device properties";
+  if (e != cudaSuccess) {
+    KALDI_CUDA_ERR(e,  "Failed to get device properties");
   }
   // find out whether compute exclusive mode is used
   switch (gpu_prop.computeMode) {
@@ -238,48 +264,65 @@ bool CuDevice::IsComputeExclusive() {
     default :
       // The computation mode is not compute-exclusive,
       // in this case we release the GPU context...
-      e = cudaThreadExit(); //deprecated, but for legacy reason not cudaDeviceReset
-      if(e != cudaSuccess) {
-        KALDI_ERR << "Failed to release CUDA context on a GPU";
+      e = cudaThreadExit(); // deprecated, but for legacy reason not cudaDeviceReset
+      if (e != cudaSuccess) {
+        KALDI_CUDA_ERR(e, "Failed to release CUDA context on a GPU");
       }
       return false;
   }
 }
 
+template<typename TA, typename TB>
+bool greater_pair(const std::pair<TA, TB> &left, const std::pair<TA, TB>& right) {
+  return left.second > right.second;
+}
 
 bool CuDevice::SelectGpuIdAuto() {
   // Check that we have at least one gpu
-  int32 n_gpu = 0;
-  cudaGetDeviceCount(&n_gpu);
-  if(n_gpu == 0) {
+  int32 num_gpus = 0;
+  cudaError_t e = cudaGetDeviceCount(&num_gpus);
+  if (num_gpus == 0) {
     KALDI_WARN << "No CUDA devices found";
+    if (e != cudaSuccess) {
+      KALDI_WARN << "cudaGetDeviceCount() returned " << e
+                 <<", meaning: \"" << cudaGetErrorString(e)  << "\"";
+    }
     return false;
   }
-  
+
   // The GPU is selected according to maximal free memory ratio
-  std::vector<float> free_mem_ratio(n_gpu+1, 0.0);
+  std::vector< std::pair<int, float> > free_mem_ratio(num_gpus);
+
   // Get ratios of memory use, if possible
-  KALDI_LOG << "Selecting from " << n_gpu << " GPUs";
-  for(int32 n = 0; n < n_gpu; n++) {
+  KALDI_LOG << "Selecting from " << num_gpus << " GPUs";
+  for(int32 n = 0; n < num_gpus; n++) {
     int32 ret = cudaSetDevice(n);
     switch(ret) {
       case cudaSuccess : {
-        //create the CUDA context for the thread
-        cudaThreadSynchronize(); //deprecated, but for legacy not cudaDeviceSynchronize
-        //get GPU name
+        // create the CUDA context for the thread
+        cudaThreadSynchronize(); // deprecated, but for legacy not cudaDeviceSynchronize
+        // get GPU name
         char name[128];
         DeviceGetName(name,128,n);
-        //get GPU memory stats
+        // get GPU memory stats
         int64 free, total;
         std::string mem_stats;
         mem_stats = GetFreeMemory(&free, &total);
-        //log
+        // log
         KALDI_LOG << "cudaSetDevice(" << n << "): "
                   << name << "\t" << mem_stats;
-        //store the free/total ratio
-        free_mem_ratio[n] = free/(float)total;
-        //destroy the CUDA context for the thread
-        cudaThreadExit(); //deprecated, but for legacy reason not cudaDeviceReset
+
+        // We have seen that in some cases GetFreeMemory returns zero
+        // That will produce nan after division, which might confuse
+        // the sorting routine. Or maybe not, but let's keep it clean
+        if (total <= 0) {
+          KALDI_LOG << "Total memory reported for device " << n << " is zero (or less).";
+        }
+        float mem_ratio = total > 0 ? free/(float)total : 0;
+        free_mem_ratio[n] = std::make_pair(n, mem_ratio);
+
+        // destroy the CUDA context for the thread
+        cudaThreadExit(); // deprecated, but for legacy reason not cudaDeviceReset
       } break;
 
 #if (CUDA_VERSION > 3020)
@@ -294,33 +337,52 @@ bool CuDevice::SelectGpuIdAuto() {
         break;
       default :
         KALDI_LOG << "cudaSetDevice(" << n << "): "
-                  << "returned " << ret << ", " 
+                  << "returned " << ret << ", "
                   << cudaGetErrorString((cudaError_t)ret);
     }
   }
-  //find GPU with max free memory
+  // find GPU with max free memory
   int32 max_id=0;
-  for(int32 n=1; n<free_mem_ratio.size(); n++) {
-    if(free_mem_ratio[n] > free_mem_ratio[max_id]) max_id=n;
-  }
-  //the free_mem_ratio should be bigger than zero
-  KALDI_ASSERT(free_mem_ratio[max_id] > 0.0);
+  std::sort(free_mem_ratio.begin(), free_mem_ratio.end(),
+            greater_pair<int, float>);
+  // the free_mem_ratio should be bigger than zero
+  KALDI_ASSERT(free_mem_ratio[max_id].second > 0.0);
 
-  //finally select the GPU
-  KALDI_LOG << "Selected device: " << max_id << " (automatically)";
-  CU_SAFE_CALL(cudaSetDevice(max_id));
-  //create the context
-  cudaError_t e;
-  e = cudaThreadSynchronize(); //deprecated, but for legacy not cudaDeviceSynchronize
-  if(e != cudaSuccess) {
-    KALDI_WARN << "Failed to create CUDA context on a GPU.";
+  float dev_id;
+  float mem_ratio;
+  do {
+    // try to select the GPU in the best to worst order
+    // Note we have to check the return codes manually, as the CU_SAFE_CALL
+    // contains call to KALDI_ERR (which will cause the program to abort)
+
+    dev_id = free_mem_ratio[max_id].first;
+    mem_ratio = free_mem_ratio[max_id].second;
+
+    KALDI_LOG << "Trying to select device: " << dev_id << " (automatically), mem_ratio: " << mem_ratio;
+    e = cudaSetDevice(dev_id);
+    if (e != cudaSuccess) {
+      KALDI_WARN << "Cannot select this device: return code " << e
+                 << ", Error message: \"" << cudaGetErrorString(e) << "\"";
+    } else {
+      e = cudaThreadSynchronize(); // deprecated, but for legacy not cudaDeviceSynchronize
+      if (e != cudaSuccess) {
+        KALDI_WARN << "Cannot select this device: return code " << e
+                   << ", Error message: \"" << cudaGetErrorString(e) << "\"";
+      }
+    }
+    max_id++;
+  } while ((e != cudaSuccess) && (max_id < free_mem_ratio.size()));
+
+  if (e != cudaSuccess) {
+    KALDI_WARN << "Failed to (automatically) select any device";
     return false;
   }
+  KALDI_LOG << "Success selecting device " << dev_id << " free mem ratio: " << mem_ratio;
   return true;
 }
 
 
-void CuDevice::AccuProfile(const std::string &key, double time) { 
+void CuDevice::AccuProfile(const std::string &key, double time) {
   if (profile_map_.find(key) == profile_map_.end()) {
     profile_map_[key] = 0.0;
   }
@@ -331,12 +393,13 @@ void CuDevice::PrintMemoryUsage() const {
   if (Enabled()) {
     int64 free_memory_now;
     GetFreeMemory(&free_memory_now, NULL);
-    KALDI_LOG << "Memory used: " << (free_memory_at_startup_ - free_memory_now) << " bytes.";
+    KALDI_LOG << "Memory used (according to the device): "
+              << (free_memory_at_startup_ - free_memory_now) << " bytes.";
   }
 }
 
 void CuDevice::PrintProfile() {
-  if (verbose_ && Enabled()) { 
+  if (verbose_ && Enabled()) {
     std::ostringstream os;
     os << "-----\n[cudevice profile]\n";
     std::map<std::string, double>::iterator it;
@@ -353,7 +416,7 @@ void CuDevice::PrintProfile() {
     std::sort(pairs.begin(), pairs.end());
     size_t max_print = 15, start_pos = (pairs.size() <= max_print ?
                                         0 : pairs.size() - max_print);
-    for (size_t i = start_pos; i < pairs.size(); i++) 
+    for (size_t i = start_pos; i < pairs.size(); i++)
       os << pairs[i].second << "\t" << pairs[i].first << "s\n";
     os << "Total GPU time:\t" << total_time << "s (may involve some double-counting)\n";
     os << "-----";
@@ -364,81 +427,89 @@ void CuDevice::PrintProfile() {
 
 
 std::string CuDevice::GetFreeMemory(int64* free, int64* total) const {
-// WARNING! the CUDA API is inconsistent accross versions!
+  // WARNING! the CUDA API is inconsistent accross versions!
+#ifdef _MSC_VER
+  size_t mem_free, mem_total;
+  cuMemGetInfo_v2(&mem_free, &mem_total);
+#else
 #if (CUDA_VERSION >= 3020)
-  //define the function signature type
+  // define the function signature type
   size_t mem_free, mem_total;
 #else
   unsigned int mem_free, mem_total;
 #endif
-  { 
-    //we will load the cuMemGetInfo dynamically from libcuda.so
-    //cuMemGetInfo(&mem_free, &mem_total);
-    //pre-fill ``safe'' values that will not cause problems
+#endif
+  {
+    // we will load cuMemGetInfo_v2 dynamically from libcuda.so
+    // pre-fill ``safe'' values that will not cause problems
     mem_free = 1; mem_total = 1;
-    //open libcuda.so
+    // open libcuda.so
     void* libcuda = dlopen("libcuda.so",RTLD_LAZY);
-    if(NULL == libcuda) { 
-      KALDI_WARN << "cannot open libcuda.so"; 
+    if (NULL == libcuda) {
+      KALDI_WARN << "cannot open libcuda.so";
     } else {
-      //define the function signature type
-      //and get the symbol
+      // define the function signature type
+      // and get the symbol
 #if (CUDA_VERSION >= 3020)
       typedef CUresult (*cu_fun_ptr)(size_t*, size_t*);
-      cu_fun_ptr dl_cuMemGetInfo = (cu_fun_ptr)dlsym(libcuda,"cuMemGetInfo_v2"); 
+      cu_fun_ptr dl_cuMemGetInfo = (cu_fun_ptr)dlsym(libcuda,"cuMemGetInfo_v2");
 #else
       typedef CUresult (*cu_fun_ptr)(int*, int*);
-      cu_fun_ptr dl_cuMemGetInfo = (cu_fun_ptr)dlsym(libcuda,"cuMemGetInfo"); 
+      cu_fun_ptr dl_cuMemGetInfo = (cu_fun_ptr)dlsym(libcuda,"cuMemGetInfo");
 #endif
-      if(NULL == dl_cuMemGetInfo) {
+      if (NULL == dl_cuMemGetInfo) {
         KALDI_WARN << "cannot load cuMemGetInfo from libcuda.so";
       } else {
-        //call the function
+        // call the function
         dl_cuMemGetInfo(&mem_free, &mem_total);
       }
-      //close the library
+      // close the library
       dlclose(libcuda);
     }
   }
   // copy the output values outside
-  if(NULL != free) *free = mem_free;
-  if(NULL != total) *total = mem_total;
+  if (NULL != free) *free = mem_free;
+  if (NULL != total) *total = mem_total;
   // prepare the text output
   std::ostringstream os;
   os << "free:" << mem_free/(1024*1024) << "M, "
      << "used:" << (mem_total-mem_free)/(1024*1024) << "M, "
-     << "total:" << mem_total/(1024*1024) << "M, " 
+     << "total:" << mem_total/(1024*1024) << "M, "
      << "free/total:" << mem_free/(float)mem_total;
   return os.str();
 }
 
 
 void CuDevice::DeviceGetName(char* name, int32 len, int32 dev) {
-  //prefill with something reasonable
+  // prefill with something reasonable
   strncpy(name,"Unknown GPU",len);
-  //open libcuda.so
+#ifdef _MSC_VER
+  cuDeviceGetName(name, len, dev);
+#else
+  // open libcuda.so
   void* libcuda = dlopen("libcuda.so",RTLD_LAZY);
-  if(NULL == libcuda) {
-    KALDI_WARN << "cannot open libcuda.so"; 
+  if (NULL == libcuda) {
+    KALDI_WARN << "cannot open libcuda.so";
   } else {
-    //define the function signature type
+    // define the function signature type
     typedef CUresult (*cu_fun_ptr)(char*,int,CUdevice);
-    //get the symbol
-    cu_fun_ptr cuDeviceGetName_ptr = (cu_fun_ptr)dlsym(libcuda,"cuDeviceGetName"); 
-    if(NULL == cuDeviceGetName_ptr) {
-      KALDI_WARN << "cannot load cuDeviceGetName from libcuda.so"; 
+    // get the symbol
+    cu_fun_ptr cuDeviceGetName_ptr = (cu_fun_ptr)dlsym(libcuda,"cuDeviceGetName");
+    if (NULL == cuDeviceGetName_ptr) {
+      KALDI_WARN << "cannot load cuDeviceGetName from libcuda.so";
     } else {
-      //call the function
+      // call the function
       cuDeviceGetName_ptr(name, len, dev);
     }
-    //close the library
+    // close the library
     dlclose(libcuda);
   }
+#endif
 }
 
 
 void CuDevice::CheckGpuHealth() {
-  if(!Enabled()) return;
+  if (!Enabled()) return;
   Timer t;
   // prepare small matrices for a quick test
   Matrix<BaseFloat> a(50, 100);

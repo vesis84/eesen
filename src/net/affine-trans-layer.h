@@ -32,12 +32,16 @@ namespace eesen {
 
 class AffineTransform : public TrainableLayer {
  public:
-  AffineTransform(int32 dim_in, int32 dim_out) 
-    : TrainableLayer(dim_in, dim_out), 
-      linearity_(dim_out, dim_in), bias_(dim_out),
-      linearity_corr_(dim_out, dim_in), bias_corr_(dim_out),
-      learn_rate_coef_(1.0)
+  AffineTransform(int32 dim_in, int32 dim_out): 
+    TrainableLayer(dim_in, dim_out), 
+    linearity_(dim_out, dim_in), 
+    bias_(dim_out),
+    linearity_corr_(dim_out, dim_in), 
+    bias_corr_(dim_out),
+    learn_rate_coef_(1.0),
+    bias_learn_rate_coef_(0.1)
   { }
+
   ~AffineTransform()
   { }
 
@@ -48,23 +52,22 @@ class AffineTransform : public TrainableLayer {
   void InitData(std::istream &is) {
     // define options
     float param_range = 0.02;
-    float learn_rate_coef = 1.0;
     // parse config
     std::string token; 
-    while (!is.eof()) {
+    while (is >> std::ws, !is.eof()) {
       ReadToken(is, false, &token); 
       /**/ if (token == "<ParamRange>") ReadBasicType(is, false, &param_range);
-      else if (token == "<LearnRateCoef>") ReadBasicType(is, false, &learn_rate_coef);
+      else if (token == "<LearnRateCoef>") ReadBasicType(is, false, &learn_rate_coef_);
+      else if (token == "<BiasLearnRateCoef>") ReadBasicType(is, false, &bias_learn_rate_coef_);
       else KALDI_ERR << "Unknown token " << token << ", a typo in config?"
                      << " (ParamStddev|BiasMean|BiasRange|LearnRateCoef|BiasLearnRateCoef)";
-      is >> std::ws; // eat-up whitespace
     }
 
     // initialize
-    linearity_.Resize(output_dim_, input_dim_, kUndefined); linearity_.InitRandUniform(param_range);
-    bias_.Resize(output_dim_, kUndefined); bias_.InitRandUniform(param_range);
-    //
-    learn_rate_coef_ = learn_rate_coef;
+    linearity_.Resize(output_dim_, input_dim_, kUndefined);
+    linearity_.InitRandUniform(param_range);
+    bias_.Resize(output_dim_, kUndefined);
+    bias_.InitRandUniform(param_range);
   }
 
   void ReadData(std::istream &is, bool binary) {
@@ -72,6 +75,10 @@ class AffineTransform : public TrainableLayer {
     if ('<' == Peek(is, binary)) {
       ExpectToken(is, binary, "<LearnRateCoef>");
       ReadBasicType(is, binary, &learn_rate_coef_);
+    }
+    if ('<' == Peek(is, binary)) {
+      ExpectToken(is, binary, "<BiasLearnRateCoef>");
+      ReadBasicType(is, binary, &bias_learn_rate_coef_);
     }
     // weights
     linearity_.Read(is, binary);
@@ -85,6 +92,9 @@ class AffineTransform : public TrainableLayer {
   void WriteData(std::ostream &os, bool binary) const {
     WriteToken(os, binary, "<LearnRateCoef>");
     WriteBasicType(os, binary, learn_rate_coef_);
+    WriteToken(os, binary, "<BiasLearnRateCoef>");
+    WriteBasicType(os, binary, bias_learn_rate_coef_);
+
     // weights
     linearity_.Write(os, binary);
     bias_.Write(os, binary);
@@ -104,9 +114,11 @@ class AffineTransform : public TrainableLayer {
            "\n  bias" + MomentStatistics(bias_);
   }
   std::string InfoGradient() const {
-    return std::string("\n  linearity_grad") + MomentStatistics(linearity_corr_) + 
-                       "\n  bias_grad" + MomentStatistics(bias_corr_);
-           
+    return std::string("") +
+      "( learn_rate_coef_ " + ToString(learn_rate_coef_) + 
+      ", bias_learn_rate_coef_ " + ToString(bias_learn_rate_coef_) + " )" +
+      "\n  linearity_grad" + MomentStatistics(linearity_corr_) +
+      "\n  bias_grad" + MomentStatistics(bias_corr_);
   }
 
 
@@ -133,7 +145,7 @@ class AffineTransform : public TrainableLayer {
     bias_corr_.AddRowSumMat(1.0, diff, mmt);
     // update
     linearity_.AddMat(-lr, linearity_corr_);
-    bias_.AddVec(-lr, bias_corr_);
+    bias_.AddVec(-lr * bias_learn_rate_coef_, bias_corr_);
   }
   
   void Scale(BaseFloat scale) {
@@ -179,6 +191,7 @@ class AffineTransform : public TrainableLayer {
   CuVector<BaseFloat> bias_corr_;
 
   BaseFloat learn_rate_coef_;
+  BaseFloat bias_learn_rate_coef_;
 };
 
 } // namespace eesen

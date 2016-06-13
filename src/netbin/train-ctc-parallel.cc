@@ -194,7 +194,19 @@ int main(int argc, char *argv[]) {
           avg_count++;
         }
       }
-      
+     
+      // Print statistics of gradients coming from the the 1st update,
+      if (!crossvalidate && num_done == 0) {
+        KALDI_LOG << net.InfoGradient();
+      }
+      // Print statistics of gradients every N sentences,
+      int32 N = 5000;
+      if (!crossvalidate) {
+        if ((num_done + cur_sequence_num) / N > num_done / N) {
+          KALDI_LOG << net.InfoGradient();
+        }
+      }
+
       num_done += cur_sequence_num;
       total_frames += feat_mat_host.NumRows();
       

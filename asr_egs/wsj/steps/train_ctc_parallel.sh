@@ -8,6 +8,7 @@
 ## Begin configuration section
 train_tool=train-ctc-parallel  # the command for training; by default, we use the
                 # parallel version which processes multiple utterances at the same time 
+nnet_forward_string=
 
 # configs for multiple sequences
 num_sequence=5           # during training, how many utterances to be processed in parallel
@@ -38,7 +39,7 @@ verbose=1
 sort_by_len=true         # whether to sort the utterances by their lengths
 min_len=0                # minimal length of utterances to consider
 
-norm_vars=true           # whether to apply variance normalization when we do cmn
+cmvn_opts=               # options for 'apply-cmvn'whether to apply variance normalization when we do cmn
 add_deltas=true          # whether to add deltas
 copy_feats=true          # whether to copy features into a local dir (on the GPU machine)
 feats_tmpdir=            # the tmp dir to save the copied features, when copy_feats=true
@@ -78,7 +79,7 @@ done
 [ -f $dir/.lrate ] && learn_rate=`cat $dir/.lrate 2>/dev/null`
 
 ## Setup up features
-echo $norm_vars > $dir/norm_vars  # output feature configs which will be used in decoding
+echo $cmvn_opts > $dir/cmvn_opts  # output feature configs which will be used in decoding
 echo $add_deltas > $dir/add_deltas
 
 if $sort_by_len; then
@@ -92,14 +93,14 @@ else
   cat $data_cv/feats.scp | utils/shuffle_list.pl --srand ${seed:-777} > $dir/cv.scp
 fi
 
-feats_tr="ark,s,cs:apply-cmvn --norm-vars=$norm_vars --utt2spk=ark:$data_tr/utt2spk scp:$data_tr/cmvn.scp scp:$dir/train.scp ark:- |"
-feats_cv="ark,s,cs:apply-cmvn --norm-vars=$norm_vars --utt2spk=ark:$data_cv/utt2spk scp:$data_cv/cmvn.scp scp:$dir/cv.scp ark:- |"
+feats_tr="ark:apply-cmvn $cmvn_opts --utt2spk=ark:$data_tr/utt2spk scp:$data_tr/cmvn.scp scp:$dir/train.scp ark:- |"
+feats_cv="ark:apply-cmvn $cmvn_opts --utt2spk=ark:$data_cv/utt2spk scp:$data_cv/cmvn.scp scp:$dir/cv.scp ark:- |"
 
 # Save the features to a local dir on the GPU machine. On Linux, this usually points to /tmp
 if $copy_feats; then
   tmpdir=$(mktemp -d $feats_tmpdir);
-  copy-feats "$feats_tr" ark,scp:$tmpdir/train.ark,$dir/train_local.scp || exit 1;
-  copy-feats "$feats_cv" ark,scp:$tmpdir/cv.ark,$dir/cv_local.scp || exit 1;
+  copy-feats --compress=true "$feats_tr" ark,scp:$tmpdir/train.ark,$dir/train_local.scp || exit 1;
+  copy-feats --compress=true "$feats_cv" ark,scp:$tmpdir/cv.ark,$dir/cv_local.scp || exit 1;
   feats_tr="ark,s,cs:copy-feats scp:$dir/train_local.scp ark:- |"
   feats_cv="ark,s,cs:copy-feats scp:$dir/cv_local.scp ark:- |"
   trap "echo \"Removing features tmpdir $tmpdir @ $(hostname)\"; ls $tmpdir; rm -r $tmpdir" EXIT
@@ -109,6 +110,19 @@ if $add_deltas; then
   feats_tr="$feats_tr add-deltas ark:- ark:- |"
   feats_cv="$feats_cv add-deltas ark:- ark:- |"
 fi
+
+# We support nnet1 feature expansions by '$nnet_forward_string',
+if [ -n "$nnet_forward_string" ]; then
+  feats_tr="$feats_tr $nnet_forward_string"
+  feats_cv="$feats_cv $nnet_forward_string"
+  echo "$nnet_forward_string" >$dir/nnet_forward_string
+fi
+
+# Global CMVN,
+compute-cmvn-stats "$feats_tr" $dir/global_cmvn_stats
+feats_tr="$feats_tr apply-cmvn --norm-means=true --norm-vars=true $dir/global_cmvn_stats ark:- ark:- |"
+feats_cv="$feats_cv apply-cmvn --norm-means=true --norm-vars=true $dir/global_cmvn_stats ark:- ark:- |"
+
 ## End of feature setup
 
 ## Set up labels  

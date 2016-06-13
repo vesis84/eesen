@@ -87,7 +87,7 @@ if __name__ == '__main__':
         model_type = '<LstmParallel>'
 
     # add the option to set the initial value of the forget-gate bias
-    lstm_comm = ' <ParamRange> ' + param_range + ' <LearnRateCoef> 1.0 <MaxGrad> 50.0'
+    lstm_comm = ' <ParamRange> ' + param_range + ' <LearnRateCoef> 1.0'
     if arguments.has_key('fgate_bias_init'):
         lstm_comm = lstm_comm + ' <FgateBias> ' + arguments['fgate_bias_init']
 

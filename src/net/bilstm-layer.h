@@ -1,6 +1,7 @@
 // net/bilstm-layer.h
 
 // Copyright 2015   Yajie Miao, Hang Su
+// Copyright 2016   Brno University of Technology (author: Karel Vesely)
 
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,7 +31,11 @@ public:
     BiLstm(int32 input_dim, int32 output_dim) :
         TrainableLayer(input_dim, output_dim),
         cell_dim_(output_dim/2),
-        learn_rate_coef_(1.0), max_grad_(0.0),
+        learn_rate_coef_(1.0),
+        bias_learn_rate_coef_(0.1),
+        phole_learn_rate_coef_(0.02),
+        grad_clip_(50.0),
+        cell_clip_(50.0),
         drop_factor_(0.0)
     { }
 
@@ -47,22 +52,23 @@ public:
 
     void InitData(std::istream &is) {
       // define options
-      float param_range = 0.02, max_grad = 0.0;
-      float learn_rate_coef = 1.0; 
+      float param_range = 0.02;
       float fgate_bias_init = 0.0;   // the initial value for the bias of the forget gates
-      float drop_factor = 0.0;
       // parse config
       std::string token;
-      while (!is.eof()) {
+      while (is >> std::ws, !is.eof()) {
         ReadToken(is, false, &token);
         if (token == "<ParamRange>")  ReadBasicType(is, false, &param_range);
-        else if (token == "<LearnRateCoef>") ReadBasicType(is, false, &learn_rate_coef);
-        else if (token == "<MaxGrad>") ReadBasicType(is, false, &max_grad);
         else if (token == "<FgateBias>") ReadBasicType(is, false, &fgate_bias_init); 
-        else if (token == "<DropFactor>") ReadBasicType(is, false, &drop_factor);
-        else KALDI_ERR << "Unknown token " << token << ", a typo in config?"
-                       << " (ParamRange|LearnRateCoef|BiasLearnRateCoef|MaxGrad)";
-        is >> std::ws; // eat-up whitespace
+        else if (token == "<LearnRateCoef>") ReadBasicType(is, false, &learn_rate_coef_);
+        else if (token == "<BiasLearnRateCoef>") ReadBasicType(is, false, &bias_learn_rate_coef_);
+        else if (token == "<PholeLearnRateCoef>") ReadBasicType(is, false, &phole_learn_rate_coef_);
+        else if (token == "<GradClip>") ReadBasicType(is, false, &grad_clip_);
+        else if (token == "<CellClip>") ReadBasicType(is, false, &cell_clip_);
+        else if (token == "<DropFactor>") ReadBasicType(is, false, &drop_factor_);
+        else KALDI_ERR << "Unknown token " << token << ", a typo in config? "
+                       << "(ParamRange|FgateBias|LearnRateCoef|BiasLearnRateCoef|PholeLearnRateCoef|"
+                       << "GradClip|CellClip|DropFactor)";
       }
 
       // initialize weights and biases for the forward sub-layer
@@ -90,25 +96,39 @@ public:
       phole_i_c_bw_.Resize(cell_dim_); phole_i_c_bw_.InitRandUniform(param_range);
       phole_f_c_bw_.Resize(cell_dim_); phole_f_c_bw_.InitRandUniform(param_range);
       phole_o_c_bw_.Resize(cell_dim_); phole_o_c_bw_.InitRandUniform(param_range);
-
-      //
-      learn_rate_coef_ = learn_rate_coef;
-      max_grad_ = max_grad; drop_factor_ = drop_factor;
     }
 
     void ReadData(std::istream &is, bool binary) {
-      // optional learning-rate coefs
-      if ('<' == Peek(is, binary)) {
-        ExpectToken(is, binary, "<LearnRateCoef>");
-        ReadBasicType(is, binary, &learn_rate_coef_);
-      }
-      if ('<' == Peek(is, binary)) {
-        ExpectToken(is, binary, "<MaxGrad>");
-        ReadBasicType(is, binary, &max_grad_);
-      }
-      if ('<' == Peek(is, binary)) {
-        ExpectToken(is, binary, "<DropFactor>");
-        ReadBasicType(is, binary, &drop_factor_);
+      while ('<' == Peek(is, binary)) {
+        int first_char = PeekToken(is, binary);
+        switch (first_char) {
+          case 'L': ExpectToken(is, binary, "<LearnRateCoef>");
+            ReadBasicType(is, binary, &learn_rate_coef_);
+            break;
+          case 'B': ExpectToken(is, binary, "<BiasLearnRateCoef>");
+            ReadBasicType(is, binary, &bias_learn_rate_coef_);
+            break;
+          case 'P': ExpectToken(is, binary, "<PeepholeLearnRateCoef>");
+            ReadBasicType(is, binary, &phole_learn_rate_coef_);
+            break;
+          case 'G': ExpectToken(is, binary, "<GradClip>");
+            ReadBasicType(is, binary, &grad_clip_);
+            break;
+          // <MaxGrad> as alias of <GradClip> 
+          case 'M': ExpectToken(is, binary, "<MaxGrad>");
+            ReadBasicType(is, binary, &grad_clip_);
+            break;
+          case 'C': ExpectToken(is, binary, "<CellClip>");
+            ReadBasicType(is, binary, &cell_clip_);
+            break;
+          case 'D': ExpectToken(is, binary, "<DropFactor>");
+            ReadBasicType(is, binary, &drop_factor_);
+            break;
+          default: 
+            std::string token;
+            ReadToken(is, false, &token);
+            KALDI_ERR << "Unknown token: " << token;
+        }
       }
 
       // read parameters of forward layer
@@ -145,8 +165,14 @@ public:
     void WriteData(std::ostream &os, bool binary) const {
       WriteToken(os, binary, "<LearnRateCoef>");
       WriteBasicType(os, binary, learn_rate_coef_);
-      WriteToken(os, binary, "<MaxGrad>");
-      WriteBasicType(os, binary, max_grad_);
+      WriteToken(os, binary, "<BiasLearnRateCoef>");
+      WriteBasicType(os, binary, bias_learn_rate_coef_);
+      WriteToken(os, binary, "<PeepholeLearnRateCoef>");
+      WriteBasicType(os, binary, phole_learn_rate_coef_);
+      WriteToken(os, binary, "<GradClip>");
+      WriteBasicType(os, binary, grad_clip_);
+      WriteToken(os, binary, "<CellClip>");
+      WriteBasicType(os, binary, cell_clip_);
       WriteToken(os, binary, "<DropFactor>");
       WriteBasicType(os, binary, drop_factor_);
 
@@ -186,19 +212,92 @@ public:
   
     // print statistics of the gradients buffer
     std::string InfoGradient() const {
-        return std::string("    ") +
-            "\n  wei_gifo_x_fw_corr_  "   + MomentStatistics(wei_gifo_x_fw_corr_) +
-            "\n  wei_gifo_m_fw_corr_  "   + MomentStatistics(wei_gifo_m_fw_corr_) +
-            "\n  bias_fw_corr_  "         + MomentStatistics(bias_fw_corr_) +
-            "\n  phole_i_c_fw_corr_  "      + MomentStatistics(phole_i_c_fw_corr_) +
-            "\n  phole_f_c_fw_corr_  "      + MomentStatistics(phole_f_c_fw_corr_) +
-            "\n  phole_o_c_fw_corr_  "      + MomentStatistics(phole_o_c_fw_corr_) +
-            "\n  wei_gifo_x_bw_corr_  "   + MomentStatistics(wei_gifo_x_bw_corr_) +
-            "\n  wei_gifo_m_bw_corr_  "   + MomentStatistics(wei_gifo_m_bw_corr_) +
-            "\n  bias_bw_corr_  "         + MomentStatistics(bias_bw_corr_) +
-            "\n  phole_i_c_bw_corr_  "      + MomentStatistics(phole_i_c_bw_corr_) +
-            "\n  phole_f_c_bw_corr_  "      + MomentStatistics(phole_f_c_bw_corr_) +
-            "\n  phole_o_c_bw_corr_  "      + MomentStatistics(phole_o_c_bw_corr_);
+        CuSubMatrix<BaseFloat> YG_FW(propagate_buf_fw_.ColRange(0, cell_dim_));
+        CuSubMatrix<BaseFloat> YI_FW(propagate_buf_fw_.ColRange(1 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> YF_FW(propagate_buf_fw_.ColRange(2 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> YO_FW(propagate_buf_fw_.ColRange(3 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> YC_FW(propagate_buf_fw_.ColRange(4 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> YH_FW(propagate_buf_fw_.ColRange(5 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> YM_FW(propagate_buf_fw_.ColRange(6 * cell_dim_, cell_dim_));
+
+        CuSubMatrix<BaseFloat> YG_BW(propagate_buf_bw_.ColRange(0, cell_dim_));
+        CuSubMatrix<BaseFloat> YI_BW(propagate_buf_bw_.ColRange(1 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> YF_BW(propagate_buf_bw_.ColRange(2 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> YO_BW(propagate_buf_bw_.ColRange(3 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> YC_BW(propagate_buf_bw_.ColRange(4 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> YH_BW(propagate_buf_bw_.ColRange(5 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> YM_BW(propagate_buf_bw_.ColRange(6 * cell_dim_, cell_dim_));
+
+        CuSubMatrix<BaseFloat> DG_FW(backpropagate_buf_fw_.ColRange(0, cell_dim_));
+        CuSubMatrix<BaseFloat> DI_FW(backpropagate_buf_fw_.ColRange(1 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> DF_FW(backpropagate_buf_fw_.ColRange(2 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> DO_FW(backpropagate_buf_fw_.ColRange(3 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> DC_FW(backpropagate_buf_fw_.ColRange(4 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> DH_FW(backpropagate_buf_fw_.ColRange(5 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> DM_FW(backpropagate_buf_fw_.ColRange(6 * cell_dim_, cell_dim_));
+
+        CuSubMatrix<BaseFloat> DG_BW(backpropagate_buf_bw_.ColRange(0, cell_dim_));
+        CuSubMatrix<BaseFloat> DI_BW(backpropagate_buf_bw_.ColRange(1 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> DF_BW(backpropagate_buf_bw_.ColRange(2 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> DO_BW(backpropagate_buf_bw_.ColRange(3 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> DC_BW(backpropagate_buf_bw_.ColRange(4 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> DH_BW(backpropagate_buf_bw_.ColRange(5 * cell_dim_, cell_dim_));
+        CuSubMatrix<BaseFloat> DM_BW(backpropagate_buf_bw_.ColRange(6 * cell_dim_, cell_dim_));
+
+        return std::string("") +
+          "( learn_rate_coef_ " + ToString(learn_rate_coef_) + 
+          ", bias_learn_rate_coef_ " + ToString(bias_learn_rate_coef_) +
+          ", phole_learn_rate_coef_ " + ToString(phole_learn_rate_coef_) +
+          ", grad_clip_ " + ToString(grad_clip_) +
+          ", cell_clip_ " + ToString(cell_clip_) + " )" +
+          "\n  ### Gradients " +
+          "\n  wei_gifo_x_fw_corr_  "   + MomentStatistics(wei_gifo_x_fw_corr_) +
+          "\n  wei_gifo_m_fw_corr_  "   + MomentStatistics(wei_gifo_m_fw_corr_) +
+          "\n  bias_fw_corr_  "         + MomentStatistics(bias_fw_corr_) +
+          "\n  phole_i_c_fw_corr_  "      + MomentStatistics(phole_i_c_fw_corr_) +
+          "\n  phole_f_c_fw_corr_  "      + MomentStatistics(phole_f_c_fw_corr_) +
+          "\n  phole_o_c_fw_corr_  "      + MomentStatistics(phole_o_c_fw_corr_) +
+          "\n  ---" +
+          "\n  wei_gifo_x_bw_corr_  "   + MomentStatistics(wei_gifo_x_bw_corr_) +
+          "\n  wei_gifo_m_bw_corr_  "   + MomentStatistics(wei_gifo_m_bw_corr_) +
+          "\n  bias_bw_corr_  "         + MomentStatistics(bias_bw_corr_) +
+          "\n  phole_i_c_bw_corr_  "      + MomentStatistics(phole_i_c_bw_corr_) +
+          "\n  phole_f_c_bw_corr_  "      + MomentStatistics(phole_f_c_bw_corr_) +
+          "\n  phole_o_c_bw_corr_  "      + MomentStatistics(phole_o_c_bw_corr_) +
+          "\n" +
+          "\n  ### Activations (mostly after non-linearities)" +
+          "\n  YI_FW(0..1)^  " + MomentStatistics(YI_FW) + 
+          "\n  YF_FW(0..1)^  " + MomentStatistics(YF_FW) + 
+          "\n  YO_FW(0..1)^  " + MomentStatistics(YO_FW) + 
+          "\n  YG_FW(-1..1)  " + MomentStatistics(YG_FW) + 
+          "\n  YC_FW(-R..R)* " + MomentStatistics(YC_FW) + 
+          "\n  YH_FW(-1..1)  " + MomentStatistics(YH_FW) + 
+          "\n  YM_FW(-1..1)  " + MomentStatistics(YM_FW) + 
+          "\n  ---" +
+          "\n  YI_BW(0..1)^  " + MomentStatistics(YI_BW) + 
+          "\n  YF_BW(0..1)^  " + MomentStatistics(YF_BW) + 
+          "\n  YO_BW(0..1)^  " + MomentStatistics(YO_BW) + 
+          "\n  YG_BW(-1..1)  " + MomentStatistics(YG_BW) + 
+          "\n  YC_BW(-R..R)* " + MomentStatistics(YC_BW) + 
+          "\n  YH_BW(-1..1)  " + MomentStatistics(YH_BW) + 
+          "\n  YM_BW(-1..1)  " + MomentStatistics(YM_BW) + 
+          "\n" +
+          "\n  ### Derivatives (w.r.t. inputs of non-linearities)" +
+          "\n  DI_FW^  " + MomentStatistics(DI_FW) + 
+          "\n  DF_FW^  " + MomentStatistics(DF_FW) + 
+          "\n  DO_FW^  " + MomentStatistics(DO_FW) + 
+          "\n  DG_FW   " + MomentStatistics(DG_FW) + 
+          "\n  DC_FW*  " + MomentStatistics(DC_FW) + 
+          "\n  DH_FW   " + MomentStatistics(DH_FW) + 
+          "\n  DM_FW   " + MomentStatistics(DM_FW) + 
+          "\n  ---" +
+          "\n  DI_BW^  " + MomentStatistics(DI_BW) + 
+          "\n  DF_BW^  " + MomentStatistics(DF_BW) + 
+          "\n  DO_BW^  " + MomentStatistics(DO_BW) + 
+          "\n  DG_BW   " + MomentStatistics(DG_BW) + 
+          "\n  DC_BW*  " + MomentStatistics(DC_BW) + 
+          "\n  DH_BW   " + MomentStatistics(DH_BW) + 
+          "\n  DM_BW   " + MomentStatistics(DM_BW); 
     }
 
     // the feedforward pass
@@ -209,6 +308,9 @@ public:
         propagate_buf_fw_.Resize(T + 2, 7 * cell_dim_, kSetZero);
         // resize & clear propagation buffers for the backward sub-layer
         propagate_buf_bw_.Resize(T + 2, 7 * cell_dim_, kSetZero);
+
+        KALDI_ASSERT(propagate_buf_fw_.Sum() == 0.0);
+        KALDI_ASSERT(propagate_buf_bw_.Sum() == 0.0);
 
         // the forward layer
         if (1) {
@@ -250,6 +352,11 @@ public:
             // memory cell
             y_c.AddVecVec(1.0, y_i, y_g, 0.0);
             y_c.AddVecVec(1.0, y_f, YC.Row(t-1), 1.0);
+            // clipping the activation in memory cell 'c',
+            YC_t.ApplyFloor(-cell_clip_); 
+            YC_t.ApplyCeiling(cell_clip_);
+            KALDI_ASSERT(y_c.Min() >= -cell_clip_);
+            KALDI_ASSERT(y_c.Max() <= cell_clip_);
             // h - the tanh-squashed version of c
             YH_t.Tanh(YC_t);
 
@@ -299,6 +406,11 @@ public:
             // memory cell
             y_c.AddVecVec(1.0, y_i, y_g, 0.0);
             y_c.AddVecVec(1.0, y_f, YC.Row(t+1), 1.0);
+            // clipping the activation in memory cell 'c',
+            YC_t.ApplyFloor(-cell_clip_); 
+            YC_t.ApplyCeiling(cell_clip_);
+            KALDI_ASSERT(y_c.Min() >= -cell_clip_);
+            KALDI_ASSERT(y_c.Max() <= cell_clip_);
             // h, the tanh-squashed version of c
             YH_t.Tanh(YC_t);
 
@@ -330,13 +442,13 @@ public:
         if (1) {
           // get the activations of the gates/units from the feedforward buffer; these variabiles will be used
           // in gradients computation
-          CuSubMatrix<BaseFloat> YG(propagate_buf_fw_.ColRange(0, cell_dim_));
-          CuSubMatrix<BaseFloat> YI(propagate_buf_fw_.ColRange(1 * cell_dim_, cell_dim_));
-          CuSubMatrix<BaseFloat> YF(propagate_buf_fw_.ColRange(2 * cell_dim_, cell_dim_));
-          CuSubMatrix<BaseFloat> YO(propagate_buf_fw_.ColRange(3 * cell_dim_, cell_dim_));
-          CuSubMatrix<BaseFloat> YC(propagate_buf_fw_.ColRange(4 * cell_dim_, cell_dim_));
-          CuSubMatrix<BaseFloat> YH(propagate_buf_fw_.ColRange(5 * cell_dim_, cell_dim_));
-          CuSubMatrix<BaseFloat> YM(propagate_buf_fw_.ColRange(6 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YG(propagate_buf_fw_.ColRange(0, cell_dim_));
+          const CuSubMatrix<BaseFloat> YI(propagate_buf_fw_.ColRange(1 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YF(propagate_buf_fw_.ColRange(2 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YO(propagate_buf_fw_.ColRange(3 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YC(propagate_buf_fw_.ColRange(4 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YH(propagate_buf_fw_.ColRange(5 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YM(propagate_buf_fw_.ColRange(6 * cell_dim_, cell_dim_));
     
           // errors back-propagated to individual gates/units
           CuSubMatrix<BaseFloat> DG(backpropagate_buf_fw_.ColRange(0, cell_dim_));
@@ -353,13 +465,13 @@ public:
 
           for (int t = T; t >= 1; t--) {
             // variables representing activations of invidivual units/gates
-            CuSubVector<BaseFloat> y_g(YG.Row(t));  CuSubMatrix<BaseFloat> YG_t(YG.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_i(YI.Row(t));  CuSubMatrix<BaseFloat> YI_t(YI.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_f(YF.Row(t));  CuSubMatrix<BaseFloat> YF_t(YF.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_o(YO.Row(t));  CuSubMatrix<BaseFloat> YO_t(YO.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_c(YC.Row(t));  CuSubMatrix<BaseFloat> YC_t(YC.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_h(YH.Row(t));  CuSubMatrix<BaseFloat> YH_t(YH.RowRange(t,1));  
-            CuSubVector<BaseFloat> y_m(YM.Row(t));  CuSubMatrix<BaseFloat> YM_t(YM.RowRange(t,1));  
+            const CuSubVector<BaseFloat> y_g(YG.Row(t));  const CuSubMatrix<BaseFloat> YG_t(YG.RowRange(t,1));  
+            const CuSubVector<BaseFloat> y_i(YI.Row(t));  const CuSubMatrix<BaseFloat> YI_t(YI.RowRange(t,1));  
+            const CuSubVector<BaseFloat> y_f(YF.Row(t));  const CuSubMatrix<BaseFloat> YF_t(YF.RowRange(t,1));  
+            const CuSubVector<BaseFloat> y_o(YO.Row(t));  const CuSubMatrix<BaseFloat> YO_t(YO.RowRange(t,1));  
+            const CuSubVector<BaseFloat> y_c(YC.Row(t));  const CuSubMatrix<BaseFloat> YC_t(YC.RowRange(t,1));  
+            const CuSubVector<BaseFloat> y_h(YH.Row(t));  const CuSubMatrix<BaseFloat> YH_t(YH.RowRange(t,1));  
+            const CuSubVector<BaseFloat> y_m(YM.Row(t));  const CuSubMatrix<BaseFloat> YM_t(YM.RowRange(t,1));  
             // variables representing errors of invidivual units/gates 
             CuSubVector<BaseFloat> d_g(DG.Row(t));  CuSubMatrix<BaseFloat> DG_t(DG.RowRange(t,1));
             CuSubVector<BaseFloat> d_i(DI.Row(t));  CuSubMatrix<BaseFloat> DI_t(DI.RowRange(t,1));
@@ -415,13 +527,13 @@ public:
         // back-propagation in the backward layer
         if (1) {
           // get the activations of the gates/units from the feedforward buffer
-          CuSubMatrix<BaseFloat> YG(propagate_buf_bw_.ColRange(0, cell_dim_));
-          CuSubMatrix<BaseFloat> YI(propagate_buf_bw_.ColRange(1 * cell_dim_, cell_dim_));
-          CuSubMatrix<BaseFloat> YF(propagate_buf_bw_.ColRange(2 * cell_dim_, cell_dim_));
-          CuSubMatrix<BaseFloat> YO(propagate_buf_bw_.ColRange(3 * cell_dim_, cell_dim_));
-          CuSubMatrix<BaseFloat> YC(propagate_buf_bw_.ColRange(4 * cell_dim_, cell_dim_));
-          CuSubMatrix<BaseFloat> YH(propagate_buf_bw_.ColRange(5 * cell_dim_, cell_dim_));
-          CuSubMatrix<BaseFloat> YM(propagate_buf_bw_.ColRange(6 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YG(propagate_buf_bw_.ColRange(0, cell_dim_));
+          const CuSubMatrix<BaseFloat> YI(propagate_buf_bw_.ColRange(1 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YF(propagate_buf_bw_.ColRange(2 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YO(propagate_buf_bw_.ColRange(3 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YC(propagate_buf_bw_.ColRange(4 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YH(propagate_buf_bw_.ColRange(5 * cell_dim_, cell_dim_));
+          const CuSubMatrix<BaseFloat> YM(propagate_buf_bw_.ColRange(6 * cell_dim_, cell_dim_));
 
           // errors back-propagated to individual gates/units
           CuSubMatrix<BaseFloat> DG(backpropagate_buf_bw_.ColRange(0, cell_dim_));
@@ -438,13 +550,13 @@ public:
 
           for (int t = 1; t <= T; t++) {
             // variables representing activations of invidivual units/gates
-            CuSubVector<BaseFloat> y_g(YG.Row(t));  CuSubMatrix<BaseFloat> YG_t(YG.RowRange(t,1));
-            CuSubVector<BaseFloat> y_i(YI.Row(t));  CuSubMatrix<BaseFloat> YI_t(YI.RowRange(t,1));
-            CuSubVector<BaseFloat> y_f(YF.Row(t));  CuSubMatrix<BaseFloat> YF_t(YF.RowRange(t,1));
-            CuSubVector<BaseFloat> y_o(YO.Row(t));  CuSubMatrix<BaseFloat> YO_t(YO.RowRange(t,1));
-            CuSubVector<BaseFloat> y_c(YC.Row(t));  CuSubMatrix<BaseFloat> YC_t(YC.RowRange(t,1));
-            CuSubVector<BaseFloat> y_h(YH.Row(t));  CuSubMatrix<BaseFloat> YH_t(YH.RowRange(t,1));
-            CuSubVector<BaseFloat> y_m(YM.Row(t));  CuSubMatrix<BaseFloat> YM_t(YM.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_g(YG.Row(t));  const CuSubMatrix<BaseFloat> YG_t(YG.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_i(YI.Row(t));  const CuSubMatrix<BaseFloat> YI_t(YI.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_f(YF.Row(t));  const CuSubMatrix<BaseFloat> YF_t(YF.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_o(YO.Row(t));  const CuSubMatrix<BaseFloat> YO_t(YO.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_c(YC.Row(t));  const CuSubMatrix<BaseFloat> YC_t(YC.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_h(YH.Row(t));  const CuSubMatrix<BaseFloat> YH_t(YH.RowRange(t,1));
+            const CuSubVector<BaseFloat> y_m(YM.Row(t));  const CuSubMatrix<BaseFloat> YM_t(YM.RowRange(t,1));
             // variables representing errors of invidivual units/gates
             CuSubVector<BaseFloat> d_g(DG.Row(t));  CuSubMatrix<BaseFloat> DG_t(DG.RowRange(t,1));
             CuSubVector<BaseFloat> d_i(DI.Row(t));  CuSubMatrix<BaseFloat> DI_t(DI.RowRange(t,1));
@@ -500,20 +612,20 @@ public:
 
     void Update(const CuMatrixBase<BaseFloat> &input, const CuMatrixBase<BaseFloat> &diff) {
       // clip gradients 
-      if (max_grad_ > 0) {
-        wei_gifo_x_fw_corr_.ApplyFloor(-max_grad_); wei_gifo_x_fw_corr_.ApplyCeiling(max_grad_);
-        wei_gifo_m_fw_corr_.ApplyFloor(-max_grad_); wei_gifo_m_fw_corr_.ApplyCeiling(max_grad_);
-        bias_fw_corr_.ApplyFloor(-max_grad_); bias_fw_corr_.ApplyCeiling(max_grad_);
-        phole_i_c_fw_corr_.ApplyFloor(-max_grad_); phole_i_c_fw_corr_.ApplyCeiling(max_grad_);
-        phole_f_c_fw_corr_.ApplyFloor(-max_grad_); phole_f_c_fw_corr_.ApplyCeiling(max_grad_);
-        phole_o_c_fw_corr_.ApplyFloor(-max_grad_); phole_o_c_fw_corr_.ApplyCeiling(max_grad_);
+      if (grad_clip_ > 0) {
+        wei_gifo_x_fw_corr_.ApplyFloor(-grad_clip_); wei_gifo_x_fw_corr_.ApplyCeiling(grad_clip_);
+        wei_gifo_m_fw_corr_.ApplyFloor(-grad_clip_); wei_gifo_m_fw_corr_.ApplyCeiling(grad_clip_);
+        bias_fw_corr_.ApplyFloor(-grad_clip_); bias_fw_corr_.ApplyCeiling(grad_clip_);
+        phole_i_c_fw_corr_.ApplyFloor(-grad_clip_); phole_i_c_fw_corr_.ApplyCeiling(grad_clip_);
+        phole_f_c_fw_corr_.ApplyFloor(-grad_clip_); phole_f_c_fw_corr_.ApplyCeiling(grad_clip_);
+        phole_o_c_fw_corr_.ApplyFloor(-grad_clip_); phole_o_c_fw_corr_.ApplyCeiling(grad_clip_);
 
-        wei_gifo_x_bw_corr_.ApplyFloor(-max_grad_); wei_gifo_x_bw_corr_.ApplyCeiling(max_grad_);
-        wei_gifo_m_bw_corr_.ApplyFloor(-max_grad_); wei_gifo_m_bw_corr_.ApplyCeiling(max_grad_);
-        bias_bw_corr_.ApplyFloor(-max_grad_); bias_bw_corr_.ApplyCeiling(max_grad_);
-        phole_i_c_bw_corr_.ApplyFloor(-max_grad_); phole_i_c_bw_corr_.ApplyCeiling(max_grad_);
-        phole_f_c_bw_corr_.ApplyFloor(-max_grad_); phole_f_c_bw_corr_.ApplyCeiling(max_grad_);
-        phole_o_c_bw_corr_.ApplyFloor(-max_grad_); phole_o_c_bw_corr_.ApplyCeiling(max_grad_);
+        wei_gifo_x_bw_corr_.ApplyFloor(-grad_clip_); wei_gifo_x_bw_corr_.ApplyCeiling(grad_clip_);
+        wei_gifo_m_bw_corr_.ApplyFloor(-grad_clip_); wei_gifo_m_bw_corr_.ApplyCeiling(grad_clip_);
+        bias_bw_corr_.ApplyFloor(-grad_clip_); bias_bw_corr_.ApplyCeiling(grad_clip_);
+        phole_i_c_bw_corr_.ApplyFloor(-grad_clip_); phole_i_c_bw_corr_.ApplyCeiling(grad_clip_);
+        phole_f_c_bw_corr_.ApplyFloor(-grad_clip_); phole_f_c_bw_corr_.ApplyCeiling(grad_clip_);
+        phole_o_c_bw_corr_.ApplyFloor(-grad_clip_); phole_o_c_bw_corr_.ApplyCeiling(grad_clip_);
       }
 
       // update parameters
@@ -521,17 +633,17 @@ public:
 
       wei_gifo_x_fw_.AddMat(-lr, wei_gifo_x_fw_corr_);
       wei_gifo_m_fw_.AddMat(-lr, wei_gifo_m_fw_corr_);
-      bias_fw_.AddVec(-lr, bias_fw_corr_, 1.0);
-      phole_i_c_fw_.AddVec(-lr, phole_i_c_fw_corr_, 1.0);
-      phole_f_c_fw_.AddVec(-lr, phole_f_c_fw_corr_, 1.0);
-      phole_o_c_fw_.AddVec(-lr, phole_o_c_fw_corr_, 1.0);
+      bias_fw_.AddVec(-lr * bias_learn_rate_coef_, bias_fw_corr_, 1.0);
+      phole_i_c_fw_.AddVec(-lr * phole_learn_rate_coef_, phole_i_c_fw_corr_, 1.0);
+      phole_f_c_fw_.AddVec(-lr * phole_learn_rate_coef_, phole_f_c_fw_corr_, 1.0);
+      phole_o_c_fw_.AddVec(-lr * phole_learn_rate_coef_, phole_o_c_fw_corr_, 1.0);
 
       wei_gifo_x_bw_.AddMat(-lr, wei_gifo_x_bw_corr_);
       wei_gifo_m_bw_.AddMat(-lr, wei_gifo_m_bw_corr_);
-      bias_bw_.AddVec(-lr, bias_bw_corr_, 1.0);
-      phole_i_c_bw_.AddVec(-lr, phole_i_c_bw_corr_, 1.0);
-      phole_f_c_bw_.AddVec(-lr, phole_f_c_bw_corr_, 1.0);
-      phole_o_c_bw_.AddVec(-lr, phole_o_c_bw_corr_, 1.0);
+      bias_bw_.AddVec(-lr * bias_learn_rate_coef_, bias_bw_corr_, 1.0);
+      phole_i_c_bw_.AddVec(-lr * phole_learn_rate_coef_, phole_i_c_bw_corr_, 1.0);
+      phole_f_c_bw_.AddVec(-lr * phole_learn_rate_coef_, phole_f_c_bw_corr_, 1.0);
+      phole_o_c_bw_.AddVec(-lr * phole_learn_rate_coef_, phole_o_c_bw_corr_, 1.0);
     }
 
     void Scale(BaseFloat scale) {
@@ -612,7 +724,10 @@ public:
 protected:
     int32 cell_dim_;
     BaseFloat learn_rate_coef_;
-    BaseFloat max_grad_;
+    BaseFloat bias_learn_rate_coef_;
+    BaseFloat phole_learn_rate_coef_;
+    BaseFloat grad_clip_;
+    BaseFloat cell_clip_;
     BaseFloat drop_factor_;
 
     CuMatrix<BaseFloat> drop_mask_;

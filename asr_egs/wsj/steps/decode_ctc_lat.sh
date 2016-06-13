@@ -23,10 +23,11 @@ skip_scoring=false # whether to skip WER scoring
 scoring_opts="--min-acwt 5 --max-acwt 10 --acwt-factor 0.1"
 
 # feature configurations; will be read from the training dir if not provided
-norm_vars=
+cmvn_opts=
 add_deltas=
 subsample_feats=
 splice_feats=
+nnet_forward_string=
 ## End configuration section
 
 echo "$0 $@"  # Print the command line for logging
@@ -57,9 +58,11 @@ thread_string=
 [ $num_threads -gt 1 ] && thread_string="-parallel --num-threads=$num_threads"
 
 [ -z "$add_deltas" ] && add_deltas=`cat $srcdir/add_deltas 2>/dev/null`
-[ -z "$norm_vars" ] && norm_vars=`cat $srcdir/norm_vars 2>/dev/null`
+[ -z "$cmvn_opts" ] && cmvn_opts=`cat $srcdir/cmvn_opts 2>/dev/null`
 [ -z "$subsample_feats" ] && subsample_feats=`cat $srcdir/subsample_feats 2>/dev/null` || subsample_feats=false
 [ -z "$splice_feats" ] && splice_feats=`cat $srcdir/splice_feats 2>/dev/null` || splice_feats=false
+[ -z "$nnet_forward_string" ] && nnet_forward_string=`cat $srcdir/nnet_forward_string 2>/dev/null` || nnet_forward_string=false
+
 
 mkdir -p $dir/log
 split_data.sh $data $nj || exit 1;
@@ -71,11 +74,17 @@ for f in $graphdir/TLG.fst $srcdir/label.counts $data/feats.scp; do
 done
 
 ## Set up the features
-echo "$0: feature: norm_vars(${norm_vars}) add_deltas(${add_deltas})"
-feats="ark,s,cs:apply-cmvn --norm-vars=$norm_vars --utt2spk=ark:$sdata/JOB/utt2spk scp:$sdata/JOB/cmvn.scp scp:$sdata/JOB/feats.scp ark:- |"
+echo "$0: feature: apply-cmvn(${cmvn_opts}) add_deltas(${add_deltas})"
+feats="ark,s,cs:apply-cmvn $cmvn_opts --utt2spk=ark:$sdata/JOB/utt2spk scp:$sdata/JOB/cmvn.scp scp:$sdata/JOB/feats.scp ark:- |"
 $add_deltas && feats="$feats add-deltas ark:- ark:- |"
 $splice_feats && feats="$feats splice-feats --left-context=1 --right-context=1 ark:- ark:- |"
 $subsample_feats && feats="$feats subsample-feats --n=3 --offset=0 ark:- ark:- |"
+$nnet_forward_string && feats="$feats $nnet_forward_string"
+# Global CMVN,
+feats="$feats apply-cmvn --norm-means=true --norm-vars=true $srcdir/global_cmvn_stats ark:- ark:- |"
+# TODO: keep or remove?
+[ -f $srcdir/feats_std ] && feats_std=$(cat $srcdir/feats_std) && \
+  feats="$feats copy-matrix --scale=$feats_std ark:- ark:- |"
 ##
 
 # Decode for each of the acoustic scales
