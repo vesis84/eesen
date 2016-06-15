@@ -53,7 +53,7 @@ if __name__ == '__main__':
         "bi" (bi-directional).
     --fgate-bias-init : float
         Initial value of the forget-gate bias. Not specifying this option means the forget-gate bias
-        will be initialized randomly, in the same way as the other parameters. 
+        will be initialized randomly, in the same way as the other parameters.
     --input-dim : int
         Reduce the input feature to a given dimensionality before passing to the LSTM.
         Optional.
@@ -86,10 +86,25 @@ if __name__ == '__main__':
         actual_cell_dim = lstm_cell_dim
         model_type = '<LstmParallel>'
 
+    # process options for LSTM initialization,
+    lstm_opts = ' <ParamRange> ' + param_range
     # add the option to set the initial value of the forget-gate bias
-    lstm_comm = ' <ParamRange> ' + param_range + ' <LearnRateCoef> 1.0'
     if arguments.has_key('fgate_bias_init'):
-        lstm_comm = lstm_comm + ' <FgateBias> ' + arguments['fgate_bias_init']
+        lstm_opts += ' <FgateBias> ' + arguments['fgate_bias_init']
+    if arguments.has_key('learn_rate_coef'):
+        lstm_opts += ' <LearnRateCoef> ' + arguments['learn_rate_coef']
+    if arguments.has_key('bias_learn_rate_coef'):
+        lstm_opts += ' <BiasLearnRateCoef> ' + arguments['bias_learn_rate_coef']
+    if arguments.has_key('phole_learn_rate_coef'):
+        lstm_opts += ' <PholeLearnRateCoef> ' + arguments['phole_learn_rate_coef']
+    if arguments.has_key('grad_max_norm'):
+        lstm_opts += ' <GradMaxNorm> ' + arguments['grad_max_norm']
+    if arguments.has_key('grad_clip'):
+        lstm_opts += ' <GradClip> ' + arguments['grad_clip']
+    if arguments.has_key('cell_clip'):
+        lstm_opts += ' <CellClip> ' + arguments['cell_clip']
+    if arguments.has_key('drop_factor'):
+        lstm_opts += ' <DropFactor> ' + arguments['drop_factor']
 
     # add the option to specify projection layers
     if arguments.has_key('projection_dim'):
@@ -103,26 +118,30 @@ if __name__ == '__main__':
     else:
         input_dim = 0
 
-
     # pre-amble
     print '<Nnet>'
 
-    # optional dimensionality reduction layer
+    # optional dimensionality reduction layer on input,
     if input_dim > 0:
         print '<AffineTransform> <InputDim> ' + str(input_feat_dim) + ' <OutputDim> ' + str(input_dim) + ' <ParamRange> ' + param_range
         input_feat_dim = input_dim
 
     # the first layer takes input features
-    print model_type + ' <InputDim> ' + str(input_feat_dim) + ' <CellDim> ' + str(actual_cell_dim) + lstm_comm
+    print model_type + ' <InputDim> ' + str(input_feat_dim) + ' <CellDim> ' + str(actual_cell_dim) + lstm_opts
     # the following bidirectional LSTM layers
     for n in range(1, lstm_layer_num):
         if proj_dim > 0:
             print '<AffineTransform> <InputDim> ' + str(actual_cell_dim) + ' <OutputDim> ' + str(proj_dim) + ' <ParamRange> ' + param_range
-            print model_type + ' <InputDim> ' +        str(proj_dim) + ' <CellDim> ' + str(actual_cell_dim) + lstm_comm
+            print model_type + ' <InputDim> ' +        str(proj_dim) + ' <CellDim> ' + str(actual_cell_dim) + lstm_opts
         else:
-            print model_type + ' <InputDim> ' + str(actual_cell_dim) + ' <CellDim> ' + str(actual_cell_dim) + lstm_comm
+            print model_type + ' <InputDim> ' + str(actual_cell_dim) + ' <CellDim> ' + str(actual_cell_dim) + lstm_opts
+
+    # process options for the last affine transform,
+    last_affine_opts=''
+    if arguments.has_key('softmax_bias_learn_rate_coef'):
+      last_affine_opts += ' <BiasLearnRateCoef> ' + arguments['softmax_bias_learn_rate_coef']
 
     # the final affine-transform and softmax layer
-    print '<AffineTransform> <InputDim> ' + str(actual_cell_dim) + ' <OutputDim> ' + str(target_num) + ' <ParamRange> ' + param_range
+    print '<AffineTransform> <InputDim> ' + str(actual_cell_dim) + ' <OutputDim> ' + str(target_num) + ' <ParamRange> ' + param_range + last_affine_opts
     print '<Softmax> <InputDim> ' + str(target_num) + ' <OutputDim> ' + str(target_num)
     print '</Nnet>'

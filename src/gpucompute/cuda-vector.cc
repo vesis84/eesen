@@ -435,6 +435,14 @@ Real CuVectorBase<Real>::Max() const {
 }
 
 template<typename Real>
+Real CuVectorBase<Real>::Norm(Real p) const {
+  KALDI_ASSERT(p > 0.0);
+  CuVector<Real> tmp(*this);
+  tmp.ApplyPow(p);
+  return std::pow(tmp.Sum(), 1.0 / p);
+}
+
+template<typename Real>
 void CuVectorBase<Real>::MulElements(const CuVectorBase<Real> &v) {
   KALDI_ASSERT(dim_ == v.dim_);
 #if HAVE_CUDA == 1

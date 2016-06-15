@@ -96,8 +96,10 @@ public:
           // memory cell
           y_c.AddMatDotMat(1.0, y_g, kNoTrans, y_i, kNoTrans, 0.0);
           y_c.AddMatDotMat(1.0, YC.RowRange((t-1)*S,S), kNoTrans, y_f, kNoTrans, 1.0);
-          y_c.ApplyFloor(-cell_clip_);
-          y_c.ApplyCeiling(cell_clip_);
+          if (cell_clip_ > 0.0) {
+            y_c.ApplyFloor(-cell_clip_);
+            y_c.ApplyCeiling(cell_clip_);
+          }
 
           // h -- the tanh-squashed version of c
           y_h.Tanh(y_c);
@@ -155,8 +157,10 @@ public:
           // memory cell
           y_c.AddMatDotMat(1.0, y_g, kNoTrans, y_i, kNoTrans, 0.0);
           y_c.AddMatDotMat(1.0, YC.RowRange((t+1)*S,S), kNoTrans, y_f, kNoTrans, 1.0);
-          y_c.ApplyFloor(-cell_clip_);
-          y_c.ApplyCeiling(cell_clip_);
+          if (cell_clip_ > 0.0) {
+            y_c.ApplyFloor(-cell_clip_);
+            y_c.ApplyCeiling(cell_clip_);
+          }
 
           // h -- the tanh-squashed version of c
           y_h.Tanh(y_c);

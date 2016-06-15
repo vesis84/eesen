@@ -2,7 +2,7 @@
 
 // Copyright 2011-2014  Brno University of Technology (author: Karel Vesely)
 //                2015  Yajie Miao, Hang Su
-//                
+//
 
 // See ../../COPYING for clarification regarding multiple authors
 //
@@ -32,11 +32,11 @@ namespace eesen {
 
 class AffineTransform : public TrainableLayer {
  public:
-  AffineTransform(int32 dim_in, int32 dim_out): 
-    TrainableLayer(dim_in, dim_out), 
-    linearity_(dim_out, dim_in), 
+  AffineTransform(int32 dim_in, int32 dim_out):
+    TrainableLayer(dim_in, dim_out),
+    linearity_(dim_out, dim_in),
     bias_(dim_out),
-    linearity_corr_(dim_out, dim_in), 
+    linearity_corr_(dim_out, dim_in),
     bias_corr_(dim_out),
     learn_rate_coef_(1.0),
     bias_learn_rate_coef_(0.1)
@@ -48,14 +48,14 @@ class AffineTransform : public TrainableLayer {
   Layer* Copy() const { return new AffineTransform(*this); }
   LayerType GetType() const { return l_Affine_Transform; }
   LayerType GetTypeNonParal() const { return l_Affine_Transform; }
- 
+
   void InitData(std::istream &is) {
     // define options
     float param_range = 0.02;
     // parse config
-    std::string token; 
+    std::string token;
     while (is >> std::ws, !is.eof()) {
-      ReadToken(is, false, &token); 
+      ReadToken(is, false, &token);
       /**/ if (token == "<ParamRange>") ReadBasicType(is, false, &param_range);
       else if (token == "<LearnRateCoef>") ReadBasicType(is, false, &learn_rate_coef_);
       else if (token == "<BiasLearnRateCoef>") ReadBasicType(is, false, &bias_learn_rate_coef_);
@@ -101,21 +101,21 @@ class AffineTransform : public TrainableLayer {
   }
 
   int32 NumParams() const { return linearity_.NumRows()*linearity_.NumCols() + bias_.Dim(); }
-  
+
   void GetParams(Vector<BaseFloat>* wei_copy) const {
     wei_copy->Resize(NumParams());
-    int32 linearity_num_elem = linearity_.NumRows() * linearity_.NumCols(); 
+    int32 linearity_num_elem = linearity_.NumRows() * linearity_.NumCols();
     wei_copy->Range(0,linearity_num_elem).CopyRowsFromMat(Matrix<BaseFloat>(linearity_));
     wei_copy->Range(linearity_num_elem, bias_.Dim()).CopyFromVec(Vector<BaseFloat>(bias_));
   }
-  
+
   std::string Info() const {
     return std::string("\n  linearity") + MomentStatistics(linearity_) +
            "\n  bias" + MomentStatistics(bias_);
   }
   std::string InfoGradient() const {
     return std::string("") +
-      "( learn_rate_coef_ " + ToString(learn_rate_coef_) + 
+      "( learn_rate_coef_ " + ToString(learn_rate_coef_) +
       ", bias_learn_rate_coef_ " + ToString(bias_learn_rate_coef_) + " )" +
       "\n  linearity_grad" + MomentStatistics(linearity_corr_) +
       "\n  bias_grad" + MomentStatistics(bias_corr_);
@@ -147,7 +147,7 @@ class AffineTransform : public TrainableLayer {
     linearity_.AddMat(-lr, linearity_corr_);
     bias_.AddVec(-lr * bias_learn_rate_coef_, bias_corr_);
   }
-  
+
   void Scale(BaseFloat scale) {
     linearity_.Scale(scale);
     bias_.Scale(scale);

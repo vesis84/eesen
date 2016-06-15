@@ -496,6 +496,14 @@ Real CuMatrixBase<Real>::Min() const {
 
 
 template<typename Real>
+Real CuMatrixBase<Real>::FrobeniusNorm() const {
+  CuMatrix<Real> tmp(*this);
+  tmp.MulElements(*this); // ^2
+  return std::sqrt(tmp.Sum());
+}
+
+
+template<typename Real>
 void CuMatrixBase<Real>::MulElements(const CuMatrixBase<Real>& A) {
   #if HAVE_CUDA == 1
   if (CuDevice::Instantiate().Enabled()) {

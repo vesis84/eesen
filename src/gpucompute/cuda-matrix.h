@@ -112,6 +112,8 @@ class CuMatrixBase {
   Real Min() const;
   /// Max of matrix
   Real Max() const;
+  /// Norm of matrix (like L2-norm)
+  Real FrobeniusNorm() const;
   /// If the elements < floor_val, set them to floor_val
   void ApplyFloor(Real floor_val);
   /// If the elements > ceiling_val, set them to ceiling_val

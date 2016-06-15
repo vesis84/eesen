@@ -28,12 +28,13 @@ namespace eesen {
 
 class BiLstm : public TrainableLayer {
 public:
-    BiLstm(int32 input_dim, int32 output_dim) :
+    BiLstm(int32 input_dim, int32 output_dim):
         TrainableLayer(input_dim, output_dim),
-        cell_dim_(output_dim/2),
+        cell_dim_(output_dim / 2),
         learn_rate_coef_(1.0),
         bias_learn_rate_coef_(0.1),
         phole_learn_rate_coef_(0.02),
+        grad_max_norm_(500.0),
         grad_clip_(50.0),
         cell_clip_(50.0),
         drop_factor_(0.0)
@@ -52,7 +53,7 @@ public:
 
     void InitData(std::istream &is) {
       // define options
-      float param_range = 0.02;
+      float param_range = 0.1;
       float fgate_bias_init = 0.0;   // the initial value for the bias of the forget gates
       // parse config
       std::string token;
@@ -63,12 +64,13 @@ public:
         else if (token == "<LearnRateCoef>") ReadBasicType(is, false, &learn_rate_coef_);
         else if (token == "<BiasLearnRateCoef>") ReadBasicType(is, false, &bias_learn_rate_coef_);
         else if (token == "<PholeLearnRateCoef>") ReadBasicType(is, false, &phole_learn_rate_coef_);
+        else if (token == "<GradMaxNorm>") ReadBasicType(is, false, &grad_max_norm_);
         else if (token == "<GradClip>") ReadBasicType(is, false, &grad_clip_);
         else if (token == "<CellClip>") ReadBasicType(is, false, &cell_clip_);
         else if (token == "<DropFactor>") ReadBasicType(is, false, &drop_factor_);
         else KALDI_ERR << "Unknown token " << token << ", a typo in config? "
                        << "(ParamRange|FgateBias|LearnRateCoef|BiasLearnRateCoef|PholeLearnRateCoef|"
-                       << "GradClip|CellClip|DropFactor)";
+                       << "GradClip|GradMaxNorm|CellClip|DropFactor)";
       }
 
       // initialize weights and biases for the forward sub-layer
@@ -100,6 +102,7 @@ public:
 
     void ReadData(std::istream &is, bool binary) {
       while ('<' == Peek(is, binary)) {
+        std::string token;
         int first_char = PeekToken(is, binary);
         switch (first_char) {
           case 'L': ExpectToken(is, binary, "<LearnRateCoef>");
@@ -111,10 +114,16 @@ public:
           case 'P': ExpectToken(is, binary, "<PeepholeLearnRateCoef>");
             ReadBasicType(is, binary, &phole_learn_rate_coef_);
             break;
-          case 'G': ExpectToken(is, binary, "<GradClip>");
-            ReadBasicType(is, binary, &grad_clip_);
+          case 'G': ReadToken(is, false, &token);
+            /**/ if (token == "<GradClip>") ReadBasicType(is, binary, &grad_clip_);
+            else if (token == "<GradMaxNorm>") ReadBasicType(is, binary, &grad_max_norm_);
+            else KALDI_ERR << "Unknown token: " << token;
             break;
-          // <MaxGrad> as alias of <GradClip>
+          // <N_GradMaxNorm> as alias of <GradMaxNorm> (to be removed, token was not public),
+          case 'N': ExpectToken(is, binary, "<N_GradMaxNorm>");
+            ReadBasicType(is, binary, &grad_max_norm_);
+            break;
+          // <MaxGrad> as alias of <GradClip> (backward compatibility),
           case 'M': ExpectToken(is, binary, "<MaxGrad>");
             ReadBasicType(is, binary, &grad_clip_);
             break;
@@ -125,7 +134,6 @@ public:
             ReadBasicType(is, binary, &drop_factor_);
             break;
           default:
-            std::string token;
             ReadToken(is, false, &token);
             KALDI_ERR << "Unknown token: " << token;
         }
@@ -169,6 +177,8 @@ public:
       WriteBasicType(os, binary, bias_learn_rate_coef_);
       WriteToken(os, binary, "<PeepholeLearnRateCoef>");
       WriteBasicType(os, binary, phole_learn_rate_coef_);
+      WriteToken(os, binary, "<GradMaxNorm>");
+      WriteBasicType(os, binary, grad_max_norm_);
       WriteToken(os, binary, "<GradClip>");
       WriteBasicType(os, binary, grad_clip_);
       WriteToken(os, binary, "<CellClip>");
@@ -249,6 +259,7 @@ public:
           "( learn_rate_coef_ " + ToString(learn_rate_coef_) +
           ", bias_learn_rate_coef_ " + ToString(bias_learn_rate_coef_) +
           ", phole_learn_rate_coef_ " + ToString(phole_learn_rate_coef_) +
+          ", grad_max_norm_ " + ToString(grad_max_norm_) +
           ", grad_clip_ " + ToString(grad_clip_) +
           ", cell_clip_ " + ToString(cell_clip_) + " )" +
           "\n  ### Gradients " +
@@ -354,8 +365,10 @@ public:
             y_c.AddVecVec(1.0, y_i, y_g, 0.0);
             y_c.AddVecVec(1.0, y_f, YC.Row(t-1), 1.0);
             // clipping the activation in memory cell 'c',
-            YC_t.ApplyFloor(-cell_clip_);
-            YC_t.ApplyCeiling(cell_clip_);
+            if (cell_clip_ > 0.0) {
+              YC_t.ApplyFloor(-cell_clip_);
+              YC_t.ApplyCeiling(cell_clip_);
+            }
             // h - the tanh-squashed version of c
             YH_t.Tanh(YC_t);
 
@@ -406,8 +419,10 @@ public:
             y_c.AddVecVec(1.0, y_i, y_g, 0.0);
             y_c.AddVecVec(1.0, y_f, YC.Row(t+1), 1.0);
             // clipping the activation in memory cell 'c',
-            YC_t.ApplyFloor(-cell_clip_);
-            YC_t.ApplyCeiling(cell_clip_);
+            if (cell_clip_ > 0.0) {
+              YC_t.ApplyFloor(-cell_clip_);
+              YC_t.ApplyCeiling(cell_clip_);
+            }
             // h, the tanh-squashed version of c
             YH_t.Tanh(YC_t);
 
@@ -446,10 +461,6 @@ public:
           const CuSubMatrix<BaseFloat> YC(propagate_buf_fw_.ColRange(4 * cell_dim_, cell_dim_));
           const CuSubMatrix<BaseFloat> YH(propagate_buf_fw_.ColRange(5 * cell_dim_, cell_dim_));
           const CuSubMatrix<BaseFloat> YM(propagate_buf_fw_.ColRange(6 * cell_dim_, cell_dim_));
-
-          // check clipping,
-          KALDI_ASSERT(YC.Min() >= -cell_clip_);
-          KALDI_ASSERT(YC.Max() <= cell_clip_);
 
           // errors back-propagated to individual gates/units
           CuSubMatrix<BaseFloat> DG(backpropagate_buf_fw_.ColRange(0, cell_dim_));
@@ -629,6 +640,44 @@ public:
         phole_o_c_bw_corr_.ApplyFloor(-grad_clip_); phole_o_c_bw_corr_.ApplyCeiling(grad_clip_);
       }
 
+      // rescale all gradients,
+      if (grad_max_norm_ > 0) {
+        std::vector<BaseFloat> norm;
+
+        norm.push_back(wei_gifo_x_fw_corr_.FrobeniusNorm());
+        norm.push_back(wei_gifo_m_fw_corr_.FrobeniusNorm());
+        norm.push_back(bias_fw_corr_.Norm(2));
+        norm.push_back(phole_i_c_fw_corr_.Norm(2));
+        norm.push_back(phole_f_c_fw_corr_.Norm(2));
+        norm.push_back(phole_o_c_fw_corr_.Norm(2));
+
+        norm.push_back(wei_gifo_x_bw_corr_.FrobeniusNorm());
+        norm.push_back(wei_gifo_m_bw_corr_.FrobeniusNorm());
+        norm.push_back(bias_bw_corr_.Norm(2));
+        norm.push_back(phole_i_c_bw_corr_.Norm(2));
+        norm.push_back(phole_f_c_bw_corr_.Norm(2));
+        norm.push_back(phole_o_c_bw_corr_.Norm(2));
+
+        BaseFloat max = *std::max_element(norm.begin(), norm.end());
+        BaseFloat scale = grad_max_norm_ / max;  // same scale for all buffers,
+
+        if (max > grad_max_norm_) {
+          wei_gifo_x_fw_corr_.Scale(scale);
+          wei_gifo_m_fw_corr_.Scale(scale);
+          bias_fw_corr_.Scale(scale);
+          phole_i_c_fw_corr_.Scale(scale);
+          phole_f_c_fw_corr_.Scale(scale);
+          phole_o_c_fw_corr_.Scale(scale);
+
+          wei_gifo_x_bw_corr_.Scale(scale);
+          wei_gifo_m_bw_corr_.Scale(scale);
+          bias_bw_corr_.Scale(scale);
+          phole_i_c_bw_corr_.Scale(scale);
+          phole_f_c_bw_corr_.Scale(scale);
+          phole_o_c_bw_corr_.Scale(scale);
+        }
+      }
+
       // update parameters
       const BaseFloat lr = opts_.learn_rate * learn_rate_coef_;
 
@@ -727,6 +776,7 @@ protected:
     BaseFloat learn_rate_coef_;
     BaseFloat bias_learn_rate_coef_;
     BaseFloat phole_learn_rate_coef_;
+    BaseFloat grad_max_norm_;
     BaseFloat grad_clip_;
     BaseFloat cell_clip_;
     BaseFloat drop_factor_;

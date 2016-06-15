@@ -143,7 +143,10 @@ class CuVectorBase {
 
   /// Returns the minimum value of any element, or +infinity for the empty vector.  
   Real Min() const;
-  
+
+  /// Returns norm of the vector
+  Real Norm(Real p) const;
+
   // Set each element to y = (x == orig ? changed : x).
   void ReplaceValue(Real orig, Real changed);
   

@@ -40,7 +40,7 @@ Net::Net(const Net& other) {
   backpropagate_buf_.resize(NumLayers()+1);
   // copy train opts
   SetTrainOptions(other.opts_);
-  Check(); 
+  Check();
 }
 
 Net & Net::operator = (const Net& other) {
@@ -53,7 +53,7 @@ Net & Net::operator = (const Net& other) {
   propagate_buf_.resize(NumLayers()+1);
   backpropagate_buf_.resize(NumLayers()+1);
   // copy train opts
-  SetTrainOptions(other.opts_); 
+  SetTrainOptions(other.opts_);
   Check();
   return *this;
 }
@@ -68,20 +68,20 @@ void Net::Propagate(const CuMatrixBase<BaseFloat> &in, CuMatrix<BaseFloat> *out)
   KALDI_ASSERT(NULL != out);
 
   if (NumLayers() == 0) {
-    (*out) = in; // copy 
-    return; 
+    (*out) = in; // copy
+    return;
   }
 
   // we need at least L+1 input buffers
   KALDI_ASSERT((int32)propagate_buf_.size() >= NumLayers()+1);
-  
+
   propagate_buf_[0].Resize(in.NumRows(), in.NumCols());
   propagate_buf_[0].CopyFromMat(in);
 
   for(int32 i=0; i<(int32)layers_.size(); i++) {
     layers_[i]->Propagate(propagate_buf_[i], &propagate_buf_[i+1]);
   }
-  
+
   (*out) = propagate_buf_[layers_.size()];
 }
 
@@ -110,10 +110,10 @@ void Net::Backpropagate(const CuMatrixBase<BaseFloat> &out_diff, CuMatrix<BaseFl
 void Net::Feedforward(const CuMatrixBase<BaseFloat> &in, CuMatrix<BaseFloat> *out) {
   KALDI_ASSERT(NULL != out);
 
-  if (NumLayers() == 0) { 
+  if (NumLayers() == 0) {
     out->Resize(in.NumRows(), in.NumCols());
-    out->CopyFromMat(in); 
-    return; 
+    out->CopyFromMat(in);
+    return;
   }
 
   if (NumLayers() == 1) {
@@ -173,7 +173,7 @@ void Net::RemoveLayer(int32 layer) {
   // create training buffers,
   propagate_buf_.resize(NumLayers()+1);
   backpropagate_buf_.resize(NumLayers()+1);
-  // 
+  //
   Check();
 }
 
@@ -185,7 +185,7 @@ void Net::GetParams(Vector<BaseFloat>* wei_copy) const {
   for(int32 i=0; i<layers_.size(); i++) {
     if(layers_[i]->IsTrainable()) {
       TrainableLayer& tl = dynamic_cast<TrainableLayer&>(*layers_[i]);
-      Vector<BaseFloat> c_params; 
+      Vector<BaseFloat> c_params;
       tl.GetParams(&c_params);
       wei_copy->Range(pos,c_params.Dim()).CopyFromVec(c_params);
       pos += c_params.Dim();
@@ -223,7 +223,7 @@ void Net::Init(const std::string &file) {
     KALDI_ASSERT(is.good());
     std::getline(is, conf_line); // get a line from config file,
     if (conf_line == "") continue;
-    KALDI_VLOG(1) << conf_line; 
+    KALDI_VLOG(1) << conf_line;
     std::istringstream(conf_line) >> std::ws >> token; // get 1st token,
     if (token == "<Nnet>" || token == "</Nnet>") continue; // ignored tokens,
     AppendLayer(Layer::Init(conf_line+"\n"));
@@ -262,7 +262,7 @@ void Net::Read(std::istream &is, bool binary) {
   backpropagate_buf_.resize(NumLayers()+1);
   // reset learn rate
   opts_.learn_rate = 0.0;
-  
+
   Check(); //check consistency (dims...)
 }
 
@@ -299,7 +299,7 @@ void Net::Write(std::ostream &os, bool binary) const {
   for(int32 i=0; i<NumLayers(); i++) {
     layers_[i]->Write(os, binary);
   }
-  WriteToken(os, binary, "</Nnet>");  
+  WriteToken(os, binary, "</Nnet>");
   if(binary == false) os << std::endl;
 }
 
@@ -326,15 +326,16 @@ void Net::WriteNonParal(std::ostream &os, bool binary) const {
 std::string Net::Info() const {
   // global info
   std::ostringstream ostr;
+  ostr << "### Model-parameter stats :\n";
   ostr << "num-layers " << NumLayers() << std::endl;
   ostr << "input-dim " << InputDim() << std::endl;
   ostr << "output-dim " << OutputDim() << std::endl;
-  ostr << "number-of-parameters " << static_cast<float>(NumParams())/1e6 
+  ostr << "number-of-parameters " << static_cast<float>(NumParams())/1e6
        << " millions" << std::endl;
   // topology & weight stats
   for (int32 i = 0; i < NumLayers(); i++) {
-    ostr << "layer " << i+1 << " : " 
-         << Layer::TypeToMarker(layers_[i]->GetType()) 
+    ostr << "layer " << i+1 << " : "
+         << Layer::TypeToMarker(layers_[i]->GetType())
          << ", input-dim " << layers_[i]->InputDim()
          << ", output-dim " << layers_[i]->OutputDim()
          << ", " << layers_[i]->Info() << std::endl;
@@ -347,8 +348,8 @@ std::string Net::InfoGradient() const {
   // gradient stats
   ostr << "### Gradient stats :\n";
   for (int32 i = 0; i < NumLayers(); i++) {
-    ostr << "Layer " << i+1 << " : " 
-         << Layer::TypeToMarker(layers_[i]->GetType()) 
+    ostr << "Layer " << i+1 << " : "
+         << Layer::TypeToMarker(layers_[i]->GetType())
          << ", " << layers_[i]->InfoGradient() << std::endl;
   }
   return ostr.str();
