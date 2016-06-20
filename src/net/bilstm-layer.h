@@ -36,6 +36,7 @@ public:
         phole_learn_rate_coef_(0.02),
         grad_max_norm_(500.0),
         grad_clip_(50.0),
+        diff_clip_(0.0),
         cell_clip_(50.0),
         drop_factor_(0.0)
     { }
@@ -66,6 +67,7 @@ public:
         else if (token == "<PholeLearnRateCoef>") ReadBasicType(is, false, &phole_learn_rate_coef_);
         else if (token == "<GradMaxNorm>") ReadBasicType(is, false, &grad_max_norm_);
         else if (token == "<GradClip>") ReadBasicType(is, false, &grad_clip_);
+        else if (token == "<DiffClip>") ReadBasicType(is, false, &diff_clip_);
         else if (token == "<CellClip>") ReadBasicType(is, false, &cell_clip_);
         else if (token == "<DropFactor>") ReadBasicType(is, false, &drop_factor_);
         else KALDI_ERR << "Unknown token " << token << ", a typo in config? "
@@ -130,8 +132,10 @@ public:
           case 'C': ExpectToken(is, binary, "<CellClip>");
             ReadBasicType(is, binary, &cell_clip_);
             break;
-          case 'D': ExpectToken(is, binary, "<DropFactor>");
-            ReadBasicType(is, binary, &drop_factor_);
+          case 'D': ReadToken(is, false, &token);
+            /**/ if (token == "<DiffClip>") ReadBasicType(is, binary, &diff_clip_);
+            else if (token == "<DropFactor>") ReadBasicType(is, binary, &drop_factor_);
+            else KALDI_ERR << "Unknown token: " << token;
             break;
           default:
             ReadToken(is, false, &token);
@@ -181,6 +185,8 @@ public:
       WriteBasicType(os, binary, grad_max_norm_);
       WriteToken(os, binary, "<GradClip>");
       WriteBasicType(os, binary, grad_clip_);
+      WriteToken(os, binary, "<DiffClip>");
+      WriteBasicType(os, binary, diff_clip_);
       WriteToken(os, binary, "<CellClip>");
       WriteBasicType(os, binary, cell_clip_);
       WriteToken(os, binary, "<DropFactor>");
@@ -261,6 +267,7 @@ public:
           ", phole_learn_rate_coef_ " + ToString(phole_learn_rate_coef_) +
           ", grad_max_norm_ " + ToString(grad_max_norm_) +
           ", grad_clip_ " + ToString(grad_clip_) +
+          ", diff_clip_ " + ToString(diff_clip_) +
           ", cell_clip_ " + ToString(cell_clip_) + " )" +
           "\n  ### Gradients " +
           "\n  wei_gifo_x_fw_corr_ "   + MomentStatistics(wei_gifo_x_fw_corr_) +
@@ -485,6 +492,7 @@ public:
             const CuSubVector<BaseFloat> y_h(YH.Row(t));  const CuSubMatrix<BaseFloat> YH_t(YH.RowRange(t,1));
             const CuSubVector<BaseFloat> y_m(YM.Row(t));  const CuSubMatrix<BaseFloat> YM_t(YM.RowRange(t,1));
             // variables representing errors of invidivual units/gates
+            CuSubVector<BaseFloat> d_all(backpropagate_buf_fw_.Row(t));
             CuSubVector<BaseFloat> d_g(DG.Row(t));  CuSubMatrix<BaseFloat> DG_t(DG.RowRange(t,1));
             CuSubVector<BaseFloat> d_i(DI.Row(t));  CuSubMatrix<BaseFloat> DI_t(DI.RowRange(t,1));
             CuSubVector<BaseFloat> d_f(DF.Row(t));  CuSubMatrix<BaseFloat> DF_t(DF.RowRange(t,1));
@@ -522,6 +530,12 @@ public:
             // d_g
             d_g.AddVecVec(1.0, y_i, d_c, 0.0);
             DG_t.DiffTanh(YG_t, DG_t);
+
+            // clipping of per-frame derivatives (as done in Google),
+            if (diff_clip_ > 0.0) {
+              d_all.ApplyFloor(-diff_clip_);
+              d_all.ApplyCeiling(diff_clip_);
+            }
           } // end of t
 
           // errors back-propagated to the inputs
@@ -570,6 +584,7 @@ public:
             const CuSubVector<BaseFloat> y_h(YH.Row(t));  const CuSubMatrix<BaseFloat> YH_t(YH.RowRange(t,1));
             const CuSubVector<BaseFloat> y_m(YM.Row(t));  const CuSubMatrix<BaseFloat> YM_t(YM.RowRange(t,1));
             // variables representing errors of invidivual units/gates
+            CuSubVector<BaseFloat> d_all(backpropagate_buf_bw_.Row(t));
             CuSubVector<BaseFloat> d_g(DG.Row(t));  CuSubMatrix<BaseFloat> DG_t(DG.RowRange(t,1));
             CuSubVector<BaseFloat> d_i(DI.Row(t));  CuSubMatrix<BaseFloat> DI_t(DI.RowRange(t,1));
             CuSubVector<BaseFloat> d_f(DF.Row(t));  CuSubMatrix<BaseFloat> DF_t(DF.RowRange(t,1));
@@ -607,6 +622,12 @@ public:
             // d_g
             d_g.AddVecVec(1.0, y_i, d_c, 0.0);
             DG_t.DiffTanh(YG_t, DG_t);
+
+            // clipping of per-frame derivatives (as done in Google),
+            if (diff_clip_ > 0.0) {
+              d_all.ApplyFloor(-diff_clip_);
+              d_all.ApplyCeiling(diff_clip_);
+            }
           }  // end of t
 
           // errors back-propagated to the inputs
@@ -778,6 +799,7 @@ protected:
     BaseFloat phole_learn_rate_coef_;
     BaseFloat grad_max_norm_;
     BaseFloat grad_clip_;
+    BaseFloat diff_clip_;
     BaseFloat cell_clip_;
     BaseFloat drop_factor_;
 

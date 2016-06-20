@@ -291,6 +291,12 @@ public:
 //            if (t > sequence_lengths_[s])
 //              d_all.Row(s).SetZero();
 //          }
+
+          // clipping of per-frame derivatives (as done in Google),
+          if (diff_clip_ > 0.0) {
+            d_all.ApplyFloor(-diff_clip_);
+            d_all.ApplyCeiling(diff_clip_);
+          }
         }  // end of t
 
         // errors back-propagated to the inputs
@@ -377,10 +383,17 @@ public:
           // d_g
           d_g.AddMatDotMat(1.0, d_c, kNoTrans, y_i, kNoTrans, 0.0);
           d_g.DiffTanh(y_g, d_g);
+
 //          for (int s = 0; s < S; s++) {
 //            if (t > sequence_lengths_[s])
 //              d_all.Row(s).SetZero();
 //          }
+
+          // clipping of per-frame derivatives (as done in Google),
+          if (diff_clip_ > 0.0) {
+            d_all.ApplyFloor(-diff_clip_);
+            d_all.ApplyCeiling(diff_clip_);
+          }
         }  // end of t
 
         // errors back-propagated to the inputs

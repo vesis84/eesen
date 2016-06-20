@@ -11,13 +11,15 @@ nj=16
 cmd=run.pl
 num_threads=1
 
+net_output_extract_opts=
+
 acwt=0.9
 min_active=200
 max_active=7000 # max-active
 beam=15.0       # beam used
 lattice_beam=8.0
 max_mem=50000000 # approx. limit to memory consumption during minimization in bytes
-mdl=final.nnet
+mdl=
 
 skip_scoring=false # whether to skip WER scoring
 scoring_opts="--min-acwt 5 --max-acwt 10 --acwt-factor 0.1"
@@ -54,6 +56,8 @@ dir=`echo $3 | sed 's:/$::g'` # remove any trailing slash.
 srcdir=`dirname $dir`; # assume model directory one level up from decoding directory.
 sdata=$data/split$nj;
 
+[ -z "$mdl" ] && mdl=$srcdir/final.mdl
+
 thread_string=
 [ $num_threads -gt 1 ] && thread_string="-parallel --num-threads=$num_threads"
 
@@ -89,7 +93,7 @@ feats="$feats apply-cmvn --norm-means=true --norm-vars=true $srcdir/global_cmvn_
 
 # Decode for each of the acoustic scales
 $cmd JOB=1:$nj $dir/log/decode.JOB.log \
-  net-output-extract --class-frame-counts=$srcdir/label.counts --apply-log=true $srcdir/$mdl "$feats" ark:- \| \
+  net-output-extract $net_output_extract_opts --class-frame-counts=$srcdir/label.counts --apply-log=true "$mdl" "$feats" ark:- \| \
   latgen-faster  --max-active=$max_active --max-mem=$max_mem --beam=$beam --lattice-beam=$lattice_beam \
   --acoustic-scale=$acwt --allow-partial=true --word-symbol-table=$graphdir/words.txt \
   $graphdir/TLG.fst ark:- "ark:|gzip -c > $dir/lat.JOB.gz" || exit 1;

@@ -36,10 +36,13 @@ struct ClassPriorOptions {
   std::string class_frame_counts;
   BaseFloat prior_scale;
   BaseFloat prior_cutoff;
+  BaseFloat blank_offset;
 
   ClassPriorOptions() : class_frame_counts(""),
                       prior_scale(1.0),
-                      prior_cutoff(1e-10) {}
+                      prior_cutoff(1e-10),
+                      blank_offset(0.0)
+  {}
 
   void Register(OptionsItf *po) {
     po->Register("class-frame-counts", &class_frame_counts,
@@ -50,6 +53,10 @@ struct ClassPriorOptions {
                  "Scaling factor to be applied on class-log-priors");
     po->Register("prior-cutoff", &prior_cutoff,
                  "Classes with priors lower than cutoff will have 0 likelihood");
+    po->Register("blank-offset", &blank_offset,
+        "A log-domain value added to the 1st column of the output (blank). "
+        "It's a phone-detection threshold and influences the amount of word insertions. "
+        "Negative value increases amount of words, positive value reduces detections.");
   }
 };
 
@@ -62,7 +69,8 @@ class ClassPrior {
   void SubtractOnLogpost(CuMatrixBase<BaseFloat> *llk);
 
  private:
-  BaseFloat prior_scale_;
+  ClassPriorOptions opts_;
+
   CuVector<BaseFloat> log_priors_;
 
   KALDI_DISALLOW_COPY_AND_ASSIGN(ClassPrior);

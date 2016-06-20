@@ -101,6 +101,8 @@ if __name__ == '__main__':
         lstm_opts += ' <GradMaxNorm> ' + arguments['grad_max_norm']
     if arguments.has_key('grad_clip'):
         lstm_opts += ' <GradClip> ' + arguments['grad_clip']
+    if arguments.has_key('diff_clip'):
+        lstm_opts += ' <DiffClip> ' + arguments['diff_clip']
     if arguments.has_key('cell_clip'):
         lstm_opts += ' <CellClip> ' + arguments['cell_clip']
     if arguments.has_key('drop_factor'):
