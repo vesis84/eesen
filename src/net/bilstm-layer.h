@@ -34,7 +34,7 @@ public:
         learn_rate_coef_(1.0),
         bias_learn_rate_coef_(0.1),
         phole_learn_rate_coef_(0.02),
-        grad_max_norm_(500.0),
+        grad_max_norm_(1000.0),
         grad_clip_(50.0),
         diff_clip_(0.0),
         cell_clip_(50.0),
@@ -261,6 +261,22 @@ public:
         CuSubMatrix<BaseFloat> DH_BW(backpropagate_buf_bw_.ColRange(5 * cell_dim_, cell_dim_));
         CuSubMatrix<BaseFloat> DM_BW(backpropagate_buf_bw_.ColRange(6 * cell_dim_, cell_dim_));
 
+        BaseFloat grad_l2_norm = std::sqrt(
+          std::pow(wei_gifo_x_fw_corr_.FrobeniusNorm(), 2.0) +
+          std::pow(wei_gifo_m_fw_corr_.FrobeniusNorm(), 2.0) +
+          std::pow(bias_fw_corr_.Norm(2), 2.0) +
+          std::pow(phole_i_c_fw_corr_.Norm(2), 2.0) +
+          std::pow(phole_f_c_fw_corr_.Norm(2), 2.0) +
+          std::pow(phole_o_c_fw_corr_.Norm(2), 2.0) +
+
+          std::pow(wei_gifo_x_bw_corr_.FrobeniusNorm(), 2.0) +
+          std::pow(wei_gifo_m_bw_corr_.FrobeniusNorm(), 2.0) +
+          std::pow(bias_bw_corr_.Norm(2), 2.0) +
+          std::pow(phole_i_c_bw_corr_.Norm(2), 2.0) +
+          std::pow(phole_f_c_bw_corr_.Norm(2), 2.0) +
+          std::pow(phole_o_c_bw_corr_.Norm(2), 2.0)
+        );
+
         return std::string("") +
           "( learn_rate_coef_ " + ToString(learn_rate_coef_) +
           ", bias_learn_rate_coef_ " + ToString(bias_learn_rate_coef_) +
@@ -283,6 +299,7 @@ public:
           "\n  phole_i_c_bw_corr_  "     + MomentStatistics(phole_i_c_bw_corr_) +
           "\n  phole_f_c_bw_corr_  "     + MomentStatistics(phole_f_c_bw_corr_) +
           "\n  phole_o_c_bw_corr_  "     + MomentStatistics(phole_o_c_bw_corr_) +
+          "\n  --- grad L2-norm: " + ToString(grad_l2_norm) +
           "\n" +
           "\n  ### Activations (mostly after non-linearities)" +
           "\n  YI_FW(0..1)^  " + MomentStatistics(YI_FW) +
@@ -663,26 +680,25 @@ public:
 
       // rescale all gradients,
       if (grad_max_norm_ > 0) {
-        std::vector<BaseFloat> norm;
+        BaseFloat grad_l2_norm = std::sqrt(
+          std::pow(wei_gifo_x_fw_corr_.FrobeniusNorm(), 2.0) +
+          std::pow(wei_gifo_m_fw_corr_.FrobeniusNorm(), 2.0) +
+          std::pow(bias_fw_corr_.Norm(2), 2.0) +
+          std::pow(phole_i_c_fw_corr_.Norm(2), 2.0) +
+          std::pow(phole_f_c_fw_corr_.Norm(2), 2.0) +
+          std::pow(phole_o_c_fw_corr_.Norm(2), 2.0) +
 
-        norm.push_back(wei_gifo_x_fw_corr_.FrobeniusNorm());
-        norm.push_back(wei_gifo_m_fw_corr_.FrobeniusNorm());
-        norm.push_back(bias_fw_corr_.Norm(2));
-        norm.push_back(phole_i_c_fw_corr_.Norm(2));
-        norm.push_back(phole_f_c_fw_corr_.Norm(2));
-        norm.push_back(phole_o_c_fw_corr_.Norm(2));
+          std::pow(wei_gifo_x_bw_corr_.FrobeniusNorm(), 2.0) +
+          std::pow(wei_gifo_m_bw_corr_.FrobeniusNorm(), 2.0) +
+          std::pow(bias_bw_corr_.Norm(2), 2.0) +
+          std::pow(phole_i_c_bw_corr_.Norm(2), 2.0) +
+          std::pow(phole_f_c_bw_corr_.Norm(2), 2.0) +
+          std::pow(phole_o_c_bw_corr_.Norm(2), 2.0)
+        );
 
-        norm.push_back(wei_gifo_x_bw_corr_.FrobeniusNorm());
-        norm.push_back(wei_gifo_m_bw_corr_.FrobeniusNorm());
-        norm.push_back(bias_bw_corr_.Norm(2));
-        norm.push_back(phole_i_c_bw_corr_.Norm(2));
-        norm.push_back(phole_f_c_bw_corr_.Norm(2));
-        norm.push_back(phole_o_c_bw_corr_.Norm(2));
+        BaseFloat scale = grad_max_norm_ / grad_l2_norm;  // same scale for all buffers,
 
-        BaseFloat max = *std::max_element(norm.begin(), norm.end());
-        BaseFloat scale = grad_max_norm_ / max;  // same scale for all buffers,
-
-        if (max > grad_max_norm_) {
+        if (grad_l2_norm > grad_max_norm_) {
           wei_gifo_x_fw_corr_.Scale(scale);
           wei_gifo_m_fw_corr_.Scale(scale);
           bias_fw_corr_.Scale(scale);
