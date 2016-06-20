@@ -56,7 +56,7 @@ dir=`echo $3 | sed 's:/$::g'` # remove any trailing slash.
 srcdir=`dirname $dir`; # assume model directory one level up from decoding directory.
 sdata=$data/split$nj;
 
-[ -z "$mdl" ] && mdl=$srcdir/final.mdl
+[ -z "$mdl" ] && mdl=$srcdir/final.nnet
 
 thread_string=
 [ $num_threads -gt 1 ] && thread_string="-parallel --num-threads=$num_threads"
