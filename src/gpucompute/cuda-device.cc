@@ -548,11 +548,11 @@ class CuAllocator {
   CuAllocator(const CuAllocatorOptions &opts, CuDevice *device):
       device_(device), opts_(opts),
       cleanup_countdown_bytes_(opts.cleanup_interval_bytes) { }
-  
+
   inline void *Malloc(size_t size);
-  
+
   inline void *MallocPitch(size_t row_bytes, size_t num_rows, size_t *pitch);
-  
+
   inline void Free(void *ptr);
 
   inline void DisableCaching();
@@ -560,7 +560,7 @@ class CuAllocator {
   ~CuAllocator();
  private:
   inline void *MallocInternal(size_t row_bytes, size_t num_rows, size_t *pitch);
-  
+
   // struct MemInfoForSize stores information associated with a particular size
   // of allocated memory.  The row_bytes and num_rows refer to the arguments of
   // a cudaMallocPitch call; for regular, non-pitch allocations with cudaMalloc,
@@ -569,7 +569,7 @@ class CuAllocator {
   // bytes); it relates to the ordering of the map, and the behavior when
   // we didn't find the exact size and want to find larger match.
 
-  
+
   struct MemInfoForSize {
     size_t row_bytes; // or zero, if a regular CudaMalloc, not
                       // CudaMallocPitch.
@@ -582,7 +582,7 @@ class CuAllocator {
     size_t currently_used; // number that are "in the wild".. kept for
                            // diagnostics and error detection.
     std::vector<void*> freed; // freed and cached...
-      
+
     MemInfoForSize(size_t row_bytes,
                    size_t num_rows,
                    int32 count):
@@ -600,12 +600,12 @@ class CuAllocator {
   // not more than twice larger) num_rows that has freed memory waiting, it
   // returns that; otherwise, it returns a new MemInfoForSize object for the
   // requested size).
-  
+
   inline MemInfoForSize *FindMemInfo(size_t row_bytes,
                                      size_t num_rows) {
     if (row_bytes >= size_to_list_.size())
       size_to_list_.resize(row_bytes + 1, NULL);
-    
+
     // note: we set row_bytes to 0 for regular, linear allocation.
     KALDI_ASSERT(num_rows != 0);
 
@@ -624,7 +624,7 @@ class CuAllocator {
     // unsigned.
     IterType iter = (num_rows == 0 ? size_to_list.begin() :
                      size_to_list.upper_bound(num_rows - 1));
-    
+
     if (iter != size_to_list.end() && iter->first == num_rows) {
       // Found a MemInfoForSize object
       // with the requested size -> return it.
@@ -647,7 +647,7 @@ class CuAllocator {
                                                            opts_.count));
     }
   }
-                 
+
   void PossiblyCleanup(size_t num_bytes);
 
   // A periodic housekeeping task..
@@ -669,7 +669,7 @@ class CuAllocator {
   // mallocs) and then by num_rows (which for linear mallocs, is the actual size
   // in bytes).
   std::vector<std::map<size_t, MemInfoForSize*>* > size_to_list_;
-  
+
   int32 cleanup_countdown_bytes_; // countdown in bytes, until the next time we check
                                   // whether we should do cleanup
 };
@@ -693,7 +693,7 @@ void* CuAllocator::MallocInternal(size_t row_bytes,
   // because most of it is the same.  for cudaMalloc, we'll have
   // row_bytes == 0, and num_rows is just the size to be allocated.
   KALDI_ASSERT(num_rows != 0 && (row_bytes != 0) == (pitch_out != NULL));
-  
+
   MemInfoForSize *info = FindMemInfo(row_bytes, num_rows);
   if (!info->freed.empty()) { // We can satisfy the request with cached,
                               // previously-allocated memory.
@@ -764,7 +764,7 @@ void CuAllocator::Free(void *addr) {
   MemInfoForSize *info = iter->second;
   addr_to_list_.erase(addr); // Erase this element in the addr_to_list_ map.
   info->currently_used--;
-  if (info->countdown == 0 && opts_.cache_memory) { 
+  if (info->countdown == 0 && opts_.cache_memory) {
                               // We have freed [i.e. actually freed with
                               // CudaFree()] enough of these that we think
                               // we're wasting too much time this way and
@@ -882,7 +882,7 @@ CuAllocator::~CuAllocator() {
                  << " rows, were allocated and not freed.";
     }
   }
-  
+
   bool destroy = true;
   ReleaseAllCachedMemory(destroy);
 }
@@ -890,11 +890,17 @@ CuAllocator::~CuAllocator() {
 void CuDevice::Free(void *ptr) { allocator_->Free(ptr); }
 
 void* CuDevice::MallocPitch(size_t row_bytes, size_t num_rows, size_t *pitch) {
-  return allocator_->MallocPitch(row_bytes, num_rows, pitch);
+  Timer tim;
+  void* ans = allocator_->MallocPitch(row_bytes, num_rows, pitch);
+  AccuProfile("CuDevice::MallocPitch", tim.Elapsed());
+  return ans;
 }
 
 void* CuDevice::Malloc(size_t size) {
-  return allocator_->Malloc(size);
+  Timer tim;
+  void* ans = allocator_->Malloc(size);
+  AccuProfile("CuDevice::Malloc", tim.Elapsed());
+  return ans;
 }
 
 void CuDevice::DisableCaching() {
@@ -912,8 +918,8 @@ CuDevice::~CuDevice() {
   if (Enabled())
     CU_SAFE_CALL(cublasShutdown());
 }
-  
-// The instance of the static singleton 
+
+// The instance of the static singleton
 CuDevice CuDevice::global_device_;
 
 
