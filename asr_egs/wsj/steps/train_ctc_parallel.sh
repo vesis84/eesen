@@ -3,11 +3,11 @@
 # Copyright 2015  Yajie Miao    (Carnegie Mellon University)
 # Apache 2.0
 
-# This script trains acoustic models based on CTC and using SGD. 
+# This script trains acoustic models based on CTC and using SGD.
 
 ## Begin configuration section
 train_tool=train-ctc-parallel  # the command for training; by default, we use the
-                # parallel version which processes multiple utterances at the same time 
+                # parallel version which processes multiple utterances at the same time
 nnet_forward_string=
 
 # configs for multiple sequences
@@ -15,7 +15,7 @@ num_sequence=5           # during training, how many utterances to be processed 
 valid_num_sequence=10    # number of parallel sequences in validation
 frame_num_limit=1000000  # the number of frames to be processed at a time in training; this config acts to
          # to prevent running out of GPU memory if #num_sequence very long sequences are processed;the max
-         # number of training examples is decided by if num_sequence or frame_num_limit is reached first. 
+         # number of training examples is decided by if num_sequence or frame_num_limit is reached first.
 
 # learning rate
 learn_rate=0.0001        # learning rate
@@ -43,6 +43,7 @@ cmvn_opts=               # options for 'apply-cmvn'whether to apply variance nor
 add_deltas=true          # whether to add deltas
 copy_feats=true          # whether to copy features into a local dir (on the GPU machine)
 feats_tmpdir=            # the tmp dir to save the copied features, when copy_feats=true
+feats_std=0.5
 
 # status of learning rate schedule; useful when training is resumed from a break point
 cvacc=0
@@ -52,11 +53,9 @@ halving=0
 
 echo "$0 $@"  # Print the command line for logging
 
-[ -f path.sh ] && . ./path.sh; 
+[ -f path.sh ] && . ./path.sh;
 
 . utils/parse_options.sh || exit 1;
-
-set -euo pipefail
 
 if [ $# != 3 ]; then
    echo "Usage: $0 <data-tr> <data-cv> <exp-dir>"
@@ -122,12 +121,13 @@ fi
 
 # Global CMVN,
 compute-cmvn-stats "$feats_tr" $dir/global_cmvn_stats
-feats_tr="$feats_tr apply-cmvn --norm-means=true --norm-vars=true $dir/global_cmvn_stats ark:- ark:- |"
-feats_cv="$feats_cv apply-cmvn --norm-means=true --norm-vars=true $dir/global_cmvn_stats ark:- ark:- |"
+feats_tr="$feats_tr apply-cmvn --norm-means=true --norm-vars=true $dir/global_cmvn_stats ark:- ark:- | copy-matrix --scale=$feats_std ark:- ark:- |"
+feats_cv="$feats_cv apply-cmvn --norm-means=true --norm-vars=true $dir/global_cmvn_stats ark:- ark:- | copy-matrix --scale=$feats_std ark:- ark:- |"
+echo $feats_std >$dir/feats_std
 
 ## End of feature setup
 
-## Set up labels  
+## Set up labels
 labels_tr="ark:gunzip -c $dir/labels.tr.gz|"
 labels_cv="ark:gunzip -c $dir/labels.cv.gz|"
 # Compute the occurrence counts of labels in the label sequences. These counts will be used to derive prior probabilities of
@@ -198,7 +198,7 @@ for iter in $(seq $start_epoch_num $max_iters); do
     if [ 1 == $halving ]; then
       learn_rate=$(awk "BEGIN{print($learn_rate*$halving_factor)}")
     fi
-    # save the status 
+    # save the status
     echo $[$iter+1] > $dir/.epoch    # +1 because we save the epoch to start from
     echo $cvacc > $dir/.cvacc
     echo $halving > $dir/.halving
