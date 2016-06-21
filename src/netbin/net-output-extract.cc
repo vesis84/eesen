@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
     po.Register("apply-log", &apply_log, "Transform network output to logscale");
 
     std::string use_gpu="no";
-    po.Register("use-gpu", &use_gpu, "yes|no|optional, only has effect if compiled with CUDA"); 
+    po.Register("use-gpu", &use_gpu, "yes|no|optional, only has effect if compiled with CUDA");
 
     po.Read(argc, argv);
 
@@ -59,7 +59,7 @@ int main(int argc, char *argv[]) {
     std::string model_filename = po.GetArg(1),
         feature_rspecifier = po.GetArg(2),
         feature_wspecifier = po.GetArg(3);
-        
+
     using namespace eesen;
     typedef eesen::int32 int32;
 
@@ -91,21 +91,21 @@ int main(int argc, char *argv[]) {
     // Iterate over all sequences
     for (; !feature_reader.Done(); feature_reader.Next()) {
       const Matrix<BaseFloat> &mat = feature_reader.Value();
-      
+
       // Feed the sequence to the network for a feedforward pass
       net.Feedforward(CuMatrix<BaseFloat>(mat), &net_out);
-      
+
       // Convert posteriors to log-scale, if needed
       if (apply_log) {
         net_out.ApplyLog();
       }
-     
+
       // Subtract log-priors from log-posteriors, which is equivalent to
       // scaling the softmax outputs with the prior distribution
       if (prior_opts.class_frame_counts != "" ) {
         class_prior.SubtractOnLogpost(&net_out);
       }
-     
+
       // Copy from GPU to CPU
       net_out_host.Resize(net_out.NumRows(), net_out.NumCols());
       net_out.CopyToMat(&net_out_host);
@@ -116,11 +116,11 @@ int main(int argc, char *argv[]) {
       num_done++;
       tot_t += mat.NumRows();
     }
-    
+
     // Final message
-    KALDI_LOG << "Done " << num_done << " files" 
-              << " in " << time.Elapsed()/60 << "min," 
-              << " (fps " << tot_t/time.Elapsed() << ")"; 
+    KALDI_LOG << "Done " << num_done << " files"
+              << " in " << time.Elapsed()/60 << "min,"
+              << " (fps " << tot_t/time.Elapsed() << ")";
 
 #if HAVE_CUDA==1
     if (eesen::g_kaldi_verbose_level >= 1) {
