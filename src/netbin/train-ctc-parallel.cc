@@ -203,7 +203,7 @@ int main(int argc, char *argv[]) {
         KALDI_LOG << net.InfoGradient();
       }
       // Print statistics of gradients every N sentences,
-      int32 N = 5 * report_step;
+      int32 N = 10 * report_step;
       if (!crossvalidate) {
         if ((num_done + cur_sequence_num) / N > num_done / N) {
           KALDI_LOG << net.Info();

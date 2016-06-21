@@ -32,11 +32,11 @@ public:
         TrainableLayer(input_dim, output_dim),
         cell_dim_(output_dim / 2),
         learn_rate_coef_(1.0),
-        bias_learn_rate_coef_(0.1),
-        phole_learn_rate_coef_(0.02),
-        grad_max_norm_(1000.0),
-        grad_clip_(50.0),
-        diff_clip_(0.0),
+        bias_learn_rate_coef_(1.0),
+        phole_learn_rate_coef_(1.0),
+        grad_max_norm_(0.0),
+        grad_clip_(0.0),
+        diff_clip_(1.0),
         cell_clip_(50.0),
         drop_factor_(0.0)
     { }
@@ -120,10 +120,6 @@ public:
             /**/ if (token == "<GradClip>") ReadBasicType(is, binary, &grad_clip_);
             else if (token == "<GradMaxNorm>") ReadBasicType(is, binary, &grad_max_norm_);
             else KALDI_ERR << "Unknown token: " << token;
-            break;
-          // <N_GradMaxNorm> as alias of <GradMaxNorm> (to be removed, token was not public),
-          case 'N': ExpectToken(is, binary, "<N_GradMaxNorm>");
-            ReadBasicType(is, binary, &grad_max_norm_);
             break;
           // <MaxGrad> as alias of <GradClip> (backward compatibility),
           case 'M': ExpectToken(is, binary, "<MaxGrad>");
