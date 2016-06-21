@@ -8,7 +8,7 @@ cmd=run.pl
 stage=0
 
 word_ins_penalty=-0.5,0.0,0.5,1.0,2.0 # comma separated list,
-acwt=0.7,1.0 # comma seprated list,
+acwt=0.7,1.0,1.3 # comma seprated list,
 
 #end configuration section.
 
@@ -24,7 +24,7 @@ if [ $# -ne 3 ]; then
   exit 1;
 fi
 
-set -euo pipefail
+set -euxo pipefail
 
 data=$1
 lang_or_graph=$2
@@ -49,7 +49,7 @@ mkdir -p $dir/scoring/log
 
 # We are not using lattice-align-words, which may result in minor degradation,
 if [ $stage -le 0 ]; then
-  for ACWT in acwtL; do
+  for ACWT in ${acwtL[@]}; do
     $cmd WIP=1:${#wipL[@]} $dir/scoring/log/get_ctm.${ACWT}.WIP.log \
       eval "wipL=(${wipL[@]})" ';' \
       eval "wip=\${wipL[((WIP - 1))]}" ';' \
@@ -76,7 +76,7 @@ fi
 
 # Score the set...
 if [ $stage -le 2 ]; then
-  for ACWT in acwtL; do
+  for ACWT in ${acwtL[@]}; do
     $cmd WIP=1:${#wipL[@]} $dir/scoring/log/score.${ACWT}.WIP.log \
       eval "wipL=(${wipL[@]})" ';' \
       eval "wip=\${wipL[((WIP - 1))]}" ';' \
