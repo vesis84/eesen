@@ -23,8 +23,9 @@
 
 namespace eesen {
 
-ClassPrior::ClassPrior(const ClassPriorOptions &opts)
-    : prior_scale_(opts.prior_scale) {
+ClassPrior::ClassPrior(const ClassPriorOptions &opts):
+  opts_(opts) {
+
   if (opts.class_frame_counts == "") {
     return;
   }
@@ -83,7 +84,9 @@ void ClassPrior::SubtractOnLogpost(CuMatrixBase<BaseFloat> *llk) {
               << " class_frame_counts " << log_priors_.Dim()
               << " class_output_llk " << llk->NumCols();
   }
-  llk->AddVecToRows(-prior_scale_, log_priors_);
-}
+  llk->AddVecToRows(-opts_.prior_scale, log_priors_);
 
+  // Apply the log-domain offset to 1st column of 'llk',
+  llk->ColRange(0,1).Add(opts_.blank_offset);
+}
 }  // namespace eesen
