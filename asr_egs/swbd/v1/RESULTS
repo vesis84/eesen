@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for x in exp_110h/*/decode*; do [ -d $x ] && grep Sum $x/score_*/*.sys | utils/best_wer.sh; done 2>/dev/null
+for x in exp_110h/*/decode*; do [ -d $x ] && grep Sum $x/score_*/*.sys | utils/best_wer.sh | local/get_scores_from_lur.sh; done 2>/dev/null
 exit 0
 
 # CTC Phonemes on the 110-Hour set (with 4 BiLSTM layers)
