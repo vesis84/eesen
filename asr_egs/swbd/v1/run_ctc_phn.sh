@@ -122,7 +122,7 @@ if [ $stage -le 3 ]; then
   utils/prep_ctc_trans.py data/lang_phn/lexicon_numbers.txt data/train_dev/text "<unk>" | gzip -c - > $dir/labels.cv.gz
 
   # Train the network with CTC. Refer to the script for details about the arguments
-  steps/train_ctc_parallel.sh --add-deltas true --num-sequence 10 --frame-num-limit 20000 \
+  steps/train_ctc_parallel.sh --add-deltas true --num-sequence 10 --frame-num-limit 15000 \
     --learn-rate 0.00004 --report-step 1000 --halving-after-epoch 12 \
     data/train_100k_nodup data/train_dev $dir || exit 1;
 
@@ -159,7 +159,7 @@ if [ $stage -le 4 ]; then
   utils/prep_ctc_trans.py data/lang_phn/lexicon_numbers.txt data/train_dev/text "<unk>" | gzip -c - > $dir/labels.cv.gz
 
   # Train the network with CTC. Refer to the script for details about the arguments
-  steps/train_ctc_parallel.sh --add-deltas true --num-sequence 20 --frame-num-limit 20000 \
+  steps/train_ctc_parallel.sh --add-deltas true --num-sequence 20 --frame-num-limit 15000 \
     --learn-rate 0.00004 --report-step 1000 --halving-after-epoch 12 \
     data/train_nodup data/train_dev $dir || exit 1;
 
