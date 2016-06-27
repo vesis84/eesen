@@ -41,7 +41,7 @@ struct ClassPriorOptions {
   ClassPriorOptions() : class_frame_counts(""),
                       prior_scale(1.0),
                       prior_cutoff(1e-10),
-                      blank_offset(1.0)
+                      blank_offset(0.0)
   {}
 
   void Register(OptionsItf *po) {
