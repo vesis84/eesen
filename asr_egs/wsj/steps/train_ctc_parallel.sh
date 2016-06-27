@@ -143,6 +143,7 @@ if [ ! -f $dir/nnet/nnet.iter0 ]; then
 fi
 
 cur_time=`date | awk '{print $6 "-" $2 "-" $3 " " $4}'`
+iter=
 echo "TRAINING STARTS [$cur_time]"
 echo "[NOTE] TOKEN_ACCURACY refers to token accuracy, i.e., (1.0 - token_error_rate)."
 for iter in $(seq $start_epoch_num $max_iters); do

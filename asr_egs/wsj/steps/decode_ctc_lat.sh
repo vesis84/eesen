@@ -6,7 +6,7 @@
 
 
 ## Begin configuration section
-stage=0
+stage=1
 nj=16
 cmd=run.pl
 num_threads=1
@@ -48,6 +48,8 @@ if [ $# != 3 ]; then
    echo "  --acwt                                   # default 0.9, the acoustic scale to be used"
    exit 1;
 fi
+
+set -euo pipefail
 
 graphdir=$1
 data=$2
@@ -91,21 +93,23 @@ feats="$feats apply-cmvn --norm-means=true --norm-vars=true $srcdir/global_cmvn_
   feats="$feats copy-matrix --scale=$feats_std ark:- ark:- |"
 ##
 
-# Decode for each of the acoustic scales
-$cmd JOB=1:$nj $dir/log/decode.JOB.log \
-  net-output-extract $net_output_extract_opts --class-frame-counts=$srcdir/label.counts --apply-log=true "$mdl" "$feats" ark:- \| \
-  latgen-faster  --max-active=$max_active --max-mem=$max_mem --beam=$beam --lattice-beam=$lattice_beam \
-  --acoustic-scale=$acwt --allow-partial=true --word-symbol-table=$graphdir/words.txt \
-  $graphdir/TLG.fst ark:- "ark:|gzip -c > $dir/lat.JOB.gz" || exit 1;
+if [ $stage -le 1 ]; then
+  # Decode for each of the acoustic scales
+  $cmd JOB=1:$nj $dir/log/decode.JOB.log \
+    net-output-extract $net_output_extract_opts --class-frame-counts=$srcdir/label.counts --apply-log=true "$mdl" "$feats" ark:- \| \
+    latgen-faster  --max-active=$max_active --max-mem=$max_mem --beam=$beam --lattice-beam=$lattice_beam \
+    --acoustic-scale=$acwt --allow-partial=true --word-symbol-table=$graphdir/words.txt \
+    $graphdir/TLG.fst ark:- "ark:|gzip -c > $dir/lat.JOB.gz"
+fi
 
 # Scoring
 if ! $skip_scoring ; then
   if [ -f $data/stm ]; then # use sclite scoring.
     [ ! -x local/score_sclite.sh ] && echo "Not scoring because local/score_sclite.sh does not exist or not executable." && exit 1;
-    local/score_sclite.sh $scoring_opts --cmd "$cmd" $data $graphdir $dir || exit 1;
+    local/score_sclite.sh $scoring_opts --cmd "$cmd" $data $graphdir $dir
   else
     [ ! -x local/score.sh ] && echo "Not scoring because local/score.sh does not exist or not executable." && exit 1;
-    local/score.sh $scoring_opts --cmd "$cmd" $data $graphdir $dir || exit 1;
+    local/score.sh $scoring_opts --cmd "$cmd" $data $graphdir $dir
   fi
 fi
 

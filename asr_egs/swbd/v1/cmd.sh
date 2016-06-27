@@ -16,3 +16,10 @@
 export train_cmd=run.pl
 export decode_cmd=run.pl
 export cuda_cmd=run.pl
+
+if [ $(hostname -d) == 'fit.vutbr.cz' ]; then
+  export train_cmd="queue.pl -l mem_free=2G,ram_free=2G"
+  export decode_cmd="queue.pl -l mem_free=3G,ram_free=3G"
+  export cuda_cmd="queue.pl -q long.q -l gpu=1"
+fi
+
