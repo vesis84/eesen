@@ -7,8 +7,8 @@
 cmd=run.pl
 stage=0
 
-word_ins_penalty=-0.5,0.0,0.5,1.0,2.0 # comma separated list,
-acwt=0.7,1.0,1.3 # comma seprated list,
+word_ins_penalty=-0.5,0.0,0.5,1.0,1.5 # comma separated list,
+acwt=0.6,0.7,0.8,0.9,1.0 # comma seprated list,
 
 #end configuration section.
 
@@ -86,6 +86,6 @@ if [ $stage -le 2 ]; then
   done
 fi
 
-# For subset results (swbd,callhome) we look into the '.lur' file by 'local/append_lur.sh'.
+# For subset results (swbd,callhome) we look into the '.lur' file by 'local/get_scores_from_lur.sh'
 
 exit 0;
