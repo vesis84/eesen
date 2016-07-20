@@ -40,14 +40,16 @@ namespace eesen {
  * contains SGD training hyper-parameters in NetTrainOptions.
  */
 class TrainableLayer : public Layer {
- public: 
-  TrainableLayer(int32 input_dim, int32 output_dim)
-    : Layer(input_dim, output_dim) { }
+ public:
+  TrainableLayer(int32 input_dim, int32 output_dim):
+    Layer(input_dim, output_dim),
+    grad_max_frames_(0)
+  { }
   virtual ~TrainableLayer() { }
 
-  /// Check if contains trainable parameters 
-  bool IsTrainable() const { 
-    return true; 
+  /// Check if contains trainable parameters
+  bool IsTrainable() const {
+    return true;
   }
 
   /// Number of trainable parameters
@@ -57,7 +59,7 @@ class TrainableLayer : public Layer {
   /// Compute gradient and update parameters
   virtual void Update(const CuMatrixBase<BaseFloat> &input,
                       const CuMatrixBase<BaseFloat> &diff) = 0;
-  
+
   virtual void Scale(BaseFloat scale) = 0;
 
   virtual void Add(BaseFloat scale, const TrainableLayer & layer_other) = 0;
@@ -67,15 +69,23 @@ class TrainableLayer : public Layer {
     opts_ = opts;
   }
   /// Gets the training options from the component
-  const NetTrainOptions& GetTrainOptions() const { 
-    return opts_; 
+  const NetTrainOptions& GetTrainOptions() const {
+    return opts_;
   }
 
   virtual void InitData(std::istream &is) = 0;
 
+  /// Set the lengths of sequences that are processed in parallel
+  /// during training of LSTM models.
+  void SetSeqLengths(std::vector<int32> &sequence_lengths) {
+    seq_lengths_ = sequence_lengths;
+  }
+
  protected:
   /// Option-class with training hyper-parameters
-  NetTrainOptions opts_; 
+  NetTrainOptions opts_;
+  std::vector<int32> seq_lengths_;
+  BaseFloat grad_max_frames_;  ///< For gradient re-scaling,
 };
 
 } // namespace eesen

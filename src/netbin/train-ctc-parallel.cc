@@ -127,7 +127,7 @@ int main(int argc, char *argv[]) {
     int32 num_done = 0, num_no_tgt_mat = 0, num_other_error = 0, avg_count = 0;
     while (1) {
 
-      std::vector<int> frame_num_utt;
+      std::vector<int32> frame_num_utt;
       int32 sequence_index = 0, max_frame_num = 0;
 
       for ( ; !feature_reader.Done(); feature_reader.Next()) {

@@ -2,7 +2,7 @@
 
 # Apache 2.0
 
-# Decode the CTC-trained model by generating lattices.   
+# Decode the CTC-trained model by generating lattices.
 
 
 ## Begin configuration section
@@ -22,13 +22,15 @@ max_mem=50000000 # approx. limit to memory consumption during minimization in by
 mdl=
 
 skip_scoring=false # whether to skip WER scoring
-scoring_opts="--min-acwt 5 --max-acwt 10 --acwt-factor 0.1"
+scoring_opts=""
+#scoring_opts="--min-acwt 5 --max-acwt 10 --acwt-factor 0.1"
 
 # feature configurations; will be read from the training dir if not provided
 cmvn_opts=
 add_deltas=
 subsample_feats=
 splice_feats=
+splice_opts=
 nnet_forward_string=
 ## End configuration section
 
@@ -58,19 +60,20 @@ dir=`echo $3 | sed 's:/$::g'` # remove any trailing slash.
 srcdir=`dirname $dir`; # assume model directory one level up from decoding directory.
 sdata=$data/split$nj;
 
-[ -z "$mdl" ] && mdl=$srcdir/final.nnet
+[ -z "$mdl" ] && mdl=$srcdir/final.nnet || true
 
 thread_string=
-[ $num_threads -gt 1 ] && thread_string="-parallel --num-threads=$num_threads"
+[ $num_threads -gt 1 ] && thread_string="-parallel --num-threads=$num_threads" || true
 
-[ -z "$add_deltas" ] && add_deltas=`cat $srcdir/add_deltas 2>/dev/null`
-[ -z "$cmvn_opts" ] && cmvn_opts=`cat $srcdir/cmvn_opts 2>/dev/null`
+[ -z "$add_deltas" ] && add_deltas=`cat $srcdir/add_deltas 2>/dev/null` || true
+[ -z "$cmvn_opts" ] && cmvn_opts=`cat $srcdir/cmvn_opts 2>/dev/null` || true
 [ -z "$subsample_feats" ] && subsample_feats=`cat $srcdir/subsample_feats 2>/dev/null` || subsample_feats=false
 [ -z "$splice_feats" ] && splice_feats=`cat $srcdir/splice_feats 2>/dev/null` || splice_feats=false
+[ -z "$splice_opts" ] && splice_opts=`cat $srcdir/splice_opts 2>/dev/null` || true
 [ -z "$nnet_forward_string" ] && nnet_forward_string=`cat $srcdir/nnet_forward_string 2>/dev/null` || nnet_forward_string=false
 
 
-mkdir -p $dir/log
+mkdir -p $dir/log || true
 split_data.sh $data $nj || exit 1;
 echo $nj > $dir/num_jobs
 
@@ -83,7 +86,7 @@ done
 echo "$0: feature: apply-cmvn(${cmvn_opts}) add_deltas(${add_deltas})"
 feats="ark,s,cs:apply-cmvn $cmvn_opts --utt2spk=ark:$sdata/JOB/utt2spk scp:$sdata/JOB/cmvn.scp scp:$sdata/JOB/feats.scp ark:- |"
 $add_deltas && feats="$feats add-deltas ark:- ark:- |"
-$splice_feats && feats="$feats splice-feats --left-context=1 --right-context=1 ark:- ark:- |"
+$splice_feats && feats="$feats splice-feats $splice_opts ark:- ark:- |"
 $subsample_feats && feats="$feats subsample-feats --n=3 --offset=0 ark:- ark:- |"
 $nnet_forward_string && feats="$feats $nnet_forward_string"
 # Global CMVN,

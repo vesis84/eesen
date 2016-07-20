@@ -19,6 +19,9 @@
 #ifndef EESEN_BILSTM_LAYER_H_
 #define EESEN_BILSTM_LAYER_H_
 
+#include <numeric>
+#include <algorithm>
+
 #include "net/layer.h"
 #include "net/trainable-layer.h"
 #include "net/utils-functions.h"
@@ -34,7 +37,6 @@ public:
         learn_rate_coef_(1.0),
         bias_learn_rate_coef_(1.0),
         phole_learn_rate_coef_(1.0),
-        grad_max_norm_(0.0),
         grad_clip_(0.0),
         diff_clip_(1.0),
         cell_clip_(50.0),
@@ -56,6 +58,7 @@ public:
       // define options
       float param_range = 0.1;
       float fgate_bias_init = 0.0;   // the initial value for the bias of the forget gates
+
       // parse config
       std::string token;
       while (is >> std::ws, !is.eof()) {
@@ -65,7 +68,7 @@ public:
         else if (token == "<LearnRateCoef>") ReadBasicType(is, false, &learn_rate_coef_);
         else if (token == "<BiasLearnRateCoef>") ReadBasicType(is, false, &bias_learn_rate_coef_);
         else if (token == "<PholeLearnRateCoef>") ReadBasicType(is, false, &phole_learn_rate_coef_);
-        else if (token == "<GradMaxNorm>") ReadBasicType(is, false, &grad_max_norm_);
+        else if (token == "<GradMaxFrames>") ReadBasicType(is, false, &grad_max_frames_);
         else if (token == "<GradClip>") ReadBasicType(is, false, &grad_clip_);
         else if (token == "<DiffClip>") ReadBasicType(is, false, &diff_clip_);
         else if (token == "<CellClip>") ReadBasicType(is, false, &cell_clip_);
@@ -105,6 +108,7 @@ public:
     void ReadData(std::istream &is, bool binary) {
       while ('<' == Peek(is, binary)) {
         std::string token;
+        BaseFloat dummy_float;
         int first_char = PeekToken(is, binary);
         switch (first_char) {
           case 'L': ExpectToken(is, binary, "<LearnRateCoef>");
@@ -118,7 +122,8 @@ public:
             break;
           case 'G': ReadToken(is, false, &token);
             /**/ if (token == "<GradClip>") ReadBasicType(is, binary, &grad_clip_);
-            else if (token == "<GradMaxNorm>") ReadBasicType(is, binary, &grad_max_norm_);
+            else if (token == "<GradMaxFrames>") ReadBasicType(is, binary, &grad_max_frames_);
+            else if (token == "<GradMaxNorm>") ReadBasicType(is, binary, &dummy_float);  // for compatibility,
             else KALDI_ERR << "Unknown token: " << token;
             break;
           // <MaxGrad> as alias of <GradClip> (backward compatibility),
@@ -177,8 +182,8 @@ public:
       WriteBasicType(os, binary, bias_learn_rate_coef_);
       WriteToken(os, binary, "<PeepholeLearnRateCoef>");
       WriteBasicType(os, binary, phole_learn_rate_coef_);
-      WriteToken(os, binary, "<GradMaxNorm>");
-      WriteBasicType(os, binary, grad_max_norm_);
+      WriteToken(os, binary, "<GradMaxFrames>");
+      WriteBasicType(os, binary, grad_max_frames_);
       WriteToken(os, binary, "<GradClip>");
       WriteBasicType(os, binary, grad_clip_);
       WriteToken(os, binary, "<DiffClip>");
@@ -277,7 +282,7 @@ public:
           "( learn_rate_coef_ " + ToString(learn_rate_coef_) +
           ", bias_learn_rate_coef_ " + ToString(bias_learn_rate_coef_) +
           ", phole_learn_rate_coef_ " + ToString(phole_learn_rate_coef_) +
-          ", grad_max_norm_ " + ToString(grad_max_norm_) +
+          ", grad_max_frames_ " + ToString(grad_max_frames_) +
           ", grad_clip_ " + ToString(grad_clip_) +
           ", diff_clip_ " + ToString(diff_clip_) +
           ", cell_clip_ " + ToString(cell_clip_) + " )" +
@@ -657,44 +662,20 @@ public:
     }
 
     void Update(const CuMatrixBase<BaseFloat> &input, const CuMatrixBase<BaseFloat> &diff) {
-      // clip gradients
-      if (grad_clip_ > 0) {
-        wei_gifo_x_fw_corr_.ApplyFloor(-grad_clip_); wei_gifo_x_fw_corr_.ApplyCeiling(grad_clip_);
-        wei_gifo_m_fw_corr_.ApplyFloor(-grad_clip_); wei_gifo_m_fw_corr_.ApplyCeiling(grad_clip_);
-        bias_fw_corr_.ApplyFloor(-grad_clip_); bias_fw_corr_.ApplyCeiling(grad_clip_);
-        phole_i_c_fw_corr_.ApplyFloor(-grad_clip_); phole_i_c_fw_corr_.ApplyCeiling(grad_clip_);
-        phole_f_c_fw_corr_.ApplyFloor(-grad_clip_); phole_f_c_fw_corr_.ApplyCeiling(grad_clip_);
-        phole_o_c_fw_corr_.ApplyFloor(-grad_clip_); phole_o_c_fw_corr_.ApplyCeiling(grad_clip_);
 
-        wei_gifo_x_bw_corr_.ApplyFloor(-grad_clip_); wei_gifo_x_bw_corr_.ApplyCeiling(grad_clip_);
-        wei_gifo_m_bw_corr_.ApplyFloor(-grad_clip_); wei_gifo_m_bw_corr_.ApplyCeiling(grad_clip_);
-        bias_bw_corr_.ApplyFloor(-grad_clip_); bias_bw_corr_.ApplyCeiling(grad_clip_);
-        phole_i_c_bw_corr_.ApplyFloor(-grad_clip_); phole_i_c_bw_corr_.ApplyCeiling(grad_clip_);
-        phole_f_c_bw_corr_.ApplyFloor(-grad_clip_); phole_f_c_bw_corr_.ApplyCeiling(grad_clip_);
-        phole_o_c_bw_corr_.ApplyFloor(-grad_clip_); phole_o_c_bw_corr_.ApplyCeiling(grad_clip_);
-      }
-
-      // rescale all gradients,
-      if (grad_max_norm_ > 0) {
-        BaseFloat grad_l2_norm = std::sqrt(
-          std::pow(wei_gifo_x_fw_corr_.FrobeniusNorm(), 2.0) +
-          std::pow(wei_gifo_m_fw_corr_.FrobeniusNorm(), 2.0) +
-          std::pow(bias_fw_corr_.Norm(2), 2.0) +
-          std::pow(phole_i_c_fw_corr_.Norm(2), 2.0) +
-          std::pow(phole_f_c_fw_corr_.Norm(2), 2.0) +
-          std::pow(phole_o_c_fw_corr_.Norm(2), 2.0) +
-
-          std::pow(wei_gifo_x_bw_corr_.FrobeniusNorm(), 2.0) +
-          std::pow(wei_gifo_m_bw_corr_.FrobeniusNorm(), 2.0) +
-          std::pow(bias_bw_corr_.Norm(2), 2.0) +
-          std::pow(phole_i_c_bw_corr_.Norm(2), 2.0) +
-          std::pow(phole_f_c_bw_corr_.Norm(2), 2.0) +
-          std::pow(phole_o_c_bw_corr_.Norm(2), 2.0)
-        );
-
-        BaseFloat scale = grad_max_norm_ / grad_l2_norm;  // same scale for all buffers,
-
-        if (grad_l2_norm > grad_max_norm_) {
+      // Rescale the gradient according to the number of frames,
+      // from which the gradient was computed:
+      //
+      // scale = min(1.0, C / Nframes)
+      //
+      // where 'C' is a tunable constant 'grad_max_frames_'.
+      // The gradient stays unscaled for less than 'C' frames.
+      if (grad_max_frames_ > 0) {
+        //int32 num_frames = std::accumulate(seq_lengths_.begin(), seq_lengths_.end(), 0);
+        int32 num_frames = input.NumRows();
+        KALDI_ASSERT(num_frames > 0);
+        BaseFloat scale = std::min(static_cast<BaseFloat>(1.0), grad_max_frames_ / num_frames);
+        if (scale < 1.0) {
           wei_gifo_x_fw_corr_.Scale(scale);
           wei_gifo_m_fw_corr_.Scale(scale);
           bias_fw_corr_.Scale(scale);
@@ -709,6 +690,23 @@ public:
           phole_f_c_bw_corr_.Scale(scale);
           phole_o_c_bw_corr_.Scale(scale);
         }
+      }
+
+      // clip gradients,
+      if (grad_clip_ > 0) {
+        wei_gifo_x_fw_corr_.ApplyFloor(-grad_clip_); wei_gifo_x_fw_corr_.ApplyCeiling(grad_clip_);
+        wei_gifo_m_fw_corr_.ApplyFloor(-grad_clip_); wei_gifo_m_fw_corr_.ApplyCeiling(grad_clip_);
+        bias_fw_corr_.ApplyFloor(-grad_clip_); bias_fw_corr_.ApplyCeiling(grad_clip_);
+        phole_i_c_fw_corr_.ApplyFloor(-grad_clip_); phole_i_c_fw_corr_.ApplyCeiling(grad_clip_);
+        phole_f_c_fw_corr_.ApplyFloor(-grad_clip_); phole_f_c_fw_corr_.ApplyCeiling(grad_clip_);
+        phole_o_c_fw_corr_.ApplyFloor(-grad_clip_); phole_o_c_fw_corr_.ApplyCeiling(grad_clip_);
+
+        wei_gifo_x_bw_corr_.ApplyFloor(-grad_clip_); wei_gifo_x_bw_corr_.ApplyCeiling(grad_clip_);
+        wei_gifo_m_bw_corr_.ApplyFloor(-grad_clip_); wei_gifo_m_bw_corr_.ApplyCeiling(grad_clip_);
+        bias_bw_corr_.ApplyFloor(-grad_clip_); bias_bw_corr_.ApplyCeiling(grad_clip_);
+        phole_i_c_bw_corr_.ApplyFloor(-grad_clip_); phole_i_c_bw_corr_.ApplyCeiling(grad_clip_);
+        phole_f_c_bw_corr_.ApplyFloor(-grad_clip_); phole_f_c_bw_corr_.ApplyCeiling(grad_clip_);
+        phole_o_c_bw_corr_.ApplyFloor(-grad_clip_); phole_o_c_bw_corr_.ApplyCeiling(grad_clip_);
       }
 
       // update parameters
@@ -809,7 +807,6 @@ protected:
     BaseFloat learn_rate_coef_;
     BaseFloat bias_learn_rate_coef_;
     BaseFloat phole_learn_rate_coef_;
-    BaseFloat grad_max_norm_;
     BaseFloat grad_clip_;
     BaseFloat diff_clip_;
     BaseFloat cell_clip_;

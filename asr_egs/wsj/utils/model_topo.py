@@ -97,8 +97,8 @@ if __name__ == '__main__':
         lstm_opts += ' <BiasLearnRateCoef> ' + arguments['bias_learn_rate_coef']
     if arguments.has_key('phole_learn_rate_coef'):
         lstm_opts += ' <PholeLearnRateCoef> ' + arguments['phole_learn_rate_coef']
-    if arguments.has_key('grad_max_norm'):
-        lstm_opts += ' <GradMaxNorm> ' + arguments['grad_max_norm']
+    if arguments.has_key('grad_max_frames'):
+        lstm_opts += ' <GradMaxFrames> ' + arguments['grad_max_frames']
     if arguments.has_key('grad_clip'):
         lstm_opts += ' <GradClip> ' + arguments['grad_clip']
     if arguments.has_key('diff_clip'):
@@ -142,6 +142,8 @@ if __name__ == '__main__':
     last_affine_opts=''
     if arguments.has_key('softmax_bias_learn_rate_coef'):
       last_affine_opts += ' <BiasLearnRateCoef> ' + arguments['softmax_bias_learn_rate_coef']
+    if arguments.has_key('grad_max_frames'):
+      last_affine_opts += ' <GradMaxFrames> ' + arguments['grad_max_frames']
 
     # the final affine-transform and softmax layer
     print '<AffineTransform> <InputDim> ' + str(actual_cell_dim) + ' <OutputDim> ' + str(target_num) + ' <ParamRange> ' + param_range + last_affine_opts

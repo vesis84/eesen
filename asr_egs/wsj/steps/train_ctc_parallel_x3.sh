@@ -4,18 +4,18 @@
 #           2016  Florian Metze (Carnegie Mellon University)
 # Apache 2.0
 
-# This script trains acoustic models based on CTC and using SGD. 
+# This script trains acoustic models based on CTC and using SGD.
 
 ## Begin configuration section
 train_tool=train-ctc-parallel  # the command for training; by default, we use the
-                # parallel version which processes multiple utterances at the same time 
+                # parallel version which processes multiple utterances at the same time
 
 # configs for multiple sequences
 num_sequence=5           # during training, how many utterances to be processed in parallel
 valid_num_sequence=10    # number of parallel sequences in validation
 frame_num_limit=1000000  # the number of frames to be processed at a time in training; this config acts to
          # to prevent running out of GPU memory if #num_sequence very long sequences are processed;the max
-         # number of training examples is decided by if num_sequence or frame_num_limit is reached first. 
+         # number of training examples is decided by if num_sequence or frame_num_limit is reached first.
 
 # learning rate
 learn_rate=0.0001        # learning rate
@@ -41,11 +41,14 @@ sort_by_len=true         # whether to sort the utterances by their lengths
 min_len=0                # minimal length of utterances to consider
 
 splice_feats=false       # whether to splice neighboring frams
+splice_opts='--left-context=4 --right-context=4'
 subsample_feats=false    # whether to subsample features
-norm_vars=true           # whether to apply variance normalization when we do cmn
+cmvn_opts=               # whether to apply variance normalization when we do cmn
 add_deltas=true          # whether to add deltas
 copy_feats=true          # whether to copy features into a local dir (on the GPU machine)
+compress_feats=false     # whether to use compression when re-saving features
 feats_tmpdir=            # the tmp dir to save the copied features, when copy_feats=true
+feats_std=0.5
 
 # status of learning rate schedule; useful when training is resumed from a break point
 cvacc=0
@@ -55,7 +58,7 @@ halving=0
 
 echo "$0 $@"  # Print the command line for logging
 
-[ -f path.sh ] && . ./path.sh; 
+[ -f path.sh ] && . ./path.sh;
 
 . utils/parse_options.sh || exit 1;
 
@@ -64,6 +67,8 @@ if [ $# != 3 ]; then
   echo " e.g.: $0 data/train_tr data/train_cv exp/train_phn"
   exit 1;
 fi
+
+set -euo pipefail
 
 data_tr=$1
 data_cv=$2
@@ -81,7 +86,7 @@ done
 [ -f $dir/.halving ] && halving=`cat $dir/.halving 2>/dev/null`
 [ -f $dir/.lrate ] && learn_rate=`cat $dir/.lrate 2>/dev/null`
 
-## Set up labels  
+## Set up labels
 labels_tr="ark:gunzip -c $dir/labels.tr.gz|"
 labels_cv="ark:gunzip -c $dir/labels.cv.gz|"
 # Compute the occurrence counts of labels in the label sequences. These counts will be used to
@@ -92,9 +97,10 @@ gunzip -c $dir/labels.tr.gz | awk '{line=$0; gsub(" "," 0 ",line); print line " 
 
 ## Setup up features
 # output feature configs which will be used in decoding
-echo $norm_vars > $dir/norm_vars
+echo $cmvn_opts > $dir/cmvn_opts
 echo $add_deltas > $dir/add_deltas
 echo $splice_feats > $dir/splice_feats
+echo $splice_opts > $dir/splice_opts
 echo $subsample_feats > $dir/subsample_feats
 
 if $sort_by_len; then
@@ -108,39 +114,46 @@ else
   cat $data_cv/feats.scp | utils/shuffle_list.pl --srand ${seed:-777} > $dir/cv.scp
 fi
 
-feats_tr="ark,s,cs:apply-cmvn --norm-vars=$norm_vars --utt2spk=ark:$data_tr/utt2spk scp:$data_tr/cmvn.scp scp:$dir/train.scp ark:- |"
-feats_cv="ark,s,cs:apply-cmvn --norm-vars=$norm_vars --utt2spk=ark:$data_cv/utt2spk scp:$data_cv/cmvn.scp scp:$dir/cv.scp ark:- |"
+feats_tr="ark:apply-cmvn $cmvn_opts --utt2spk=ark:$data_tr/utt2spk scp:$data_tr/cmvn.scp scp:$dir/train.scp ark:- |"
+feats_cv="ark:apply-cmvn $cmvn_opts --utt2spk=ark:$data_cv/utt2spk scp:$data_cv/cmvn.scp scp:$dir/cv.scp ark:- |"
 
 if $splice_feats; then
-  feats_tr="$feats_tr splice-feats --left-context=1 --right-context=1 ark:- ark:- |"
-  feats_cv="$feats_cv splice-feats --left-context=1 --right-context=1 ark:- ark:- |"
+  feats_tr="$feats_tr splice-feats $splice_opts ark:- ark:- |"
+  feats_cv="$feats_cv splice-feats $splice_opts ark:- ark:- |"
 fi
 
 if $subsample_feats; then
   #tmpdir=$(mktemp -d --tmpdir=$feats_tmpdir);
   tmpdir=$(mktemp -d $feats_tmpdir);
+  export TMPDIR=$tmpdir
 
-  copy-feats "$feats_tr subsample-feats --n=3 --offset=0 ark:- ark:- |" \
-             ark,scp:$tmpdir/train0.ark,$tmpdir/train0local.scp || exit 1;
-  copy-feats "$feats_cv subsample-feats --n=3 --offset=0 ark:- ark:- |" \
-             ark,scp:$tmpdir/cv0.ark,$tmpdir/cv0local.scp || exit 1;
-  copy-feats "$feats_tr subsample-feats --n=3 --offset=1 ark:- ark:- |" \
-             ark,scp:$tmpdir/train1.ark,$tmpdir/train1local.scp || exit 1;
-  copy-feats "$feats_cv subsample-feats --n=3 --offset=1 ark:- ark:- |" \
-             ark,scp:$tmpdir/cv1.ark,$tmpdir/cv1local.scp || exit 1;
-  copy-feats "$feats_tr subsample-feats --n=3 --offset=2 ark:- ark:- |" \
-             ark,scp:$tmpdir/train2.ark,$tmpdir/train2local.scp || exit 1;
-  copy-feats "$feats_cv subsample-feats --n=3 --offset=2 ark:- ark:- |" \
-             ark,scp:$tmpdir/cv2.ark,$tmpdir/cv2local.scp || exit 1;
+  copy-feats --compress=$compress_feats \
+    "$feats_tr subsample-feats --n=3 --offset=0 ark:- ark:- |" \
+    ark,scp:$tmpdir/train0.ark,$tmpdir/train0local.scp || exit 1;
+  copy-feats --compress=$compress_feats \
+    "$feats_cv subsample-feats --n=3 --offset=0 ark:- ark:- |" \
+    ark,scp:$tmpdir/cv0.ark,$tmpdir/cv0local.scp || exit 1;
+  copy-feats --compress=$compress_feats \
+    "$feats_tr subsample-feats --n=3 --offset=1 ark:- ark:- |" \
+    ark,scp:$tmpdir/train1.ark,$tmpdir/train1local.scp || exit 1;
+  copy-feats --compress=$compress_feats \
+    "$feats_cv subsample-feats --n=3 --offset=1 ark:- ark:- |" \
+    ark,scp:$tmpdir/cv1.ark,$tmpdir/cv1local.scp || exit 1;
+  copy-feats --compress=$compress_feats \
+    "$feats_tr subsample-feats --n=3 --offset=2 ark:- ark:- |" \
+    ark,scp:$tmpdir/train2.ark,$tmpdir/train2local.scp || exit 1;
+  copy-feats --compress=$compress_feats \
+    "$feats_cv subsample-feats --n=3 --offset=2 ark:- ark:- |" \
+    ark,scp:$tmpdir/cv2.ark,$tmpdir/cv2local.scp || exit 1;
 
   # this code is experimental - we may need to sort the data carefully
-  sed 's/^/0x/' $tmpdir/train0local.scp        > $tmpdir/train_local.scp
-  sed 's/^/0x/' $tmpdir/cv0local.scp           > $tmpdir/cv_local.scp
-  sed 's/^/1x/' $tmpdir/train1local.scp | tac >> $tmpdir/train_local.scp
-  sed 's/^/1x/' $tmpdir/cv1local.scp    | tac >> $tmpdir/cv_local.scp
-  sed 's/^/2x/' $tmpdir/train2local.scp       >> $tmpdir/train_local.scp
-  sed 's/^/2x/' $tmpdir/cv2local.scp          >> $tmpdir/cv_local.scp
-  
+  sed 's/^/0x/' $tmpdir/train0local.scp          > $tmpdir/train_local.scp
+  sed 's/^/0x/' $tmpdir/cv0local.scp             > $tmpdir/cv_local.scp
+  sed 's/^/1x/' $tmpdir/train1local.scp | tac - >> $tmpdir/train_local.scp
+  sed 's/^/1x/' $tmpdir/cv1local.scp    | tac - >> $tmpdir/cv_local.scp
+  sed 's/^/2x/' $tmpdir/train2local.scp         >> $tmpdir/train_local.scp
+  sed 's/^/2x/' $tmpdir/cv2local.scp            >> $tmpdir/cv_local.scp
+
   feats_tr="ark,s,cs:copy-feats scp:$tmpdir/train_local.scp ark:- |"
   feats_cv="ark,s,cs:copy-feats scp:$tmpdir/cv_local.scp ark:- |"
 
@@ -150,10 +163,10 @@ if $subsample_feats; then
   gzip -cd $dir/labels.cv.gz | sed 's/^/1x/' >> $tmpdir/labels.cv
   gzip -cd $dir/labels.tr.gz | sed 's/^/2x/' >> $tmpdir/labels.tr
   gzip -cd $dir/labels.cv.gz | sed 's/^/2x/' >> $tmpdir/labels.cv
-  
-  labels_tr="ark:cat $tmpdir/labels.tr|"
-  labels_cv="ark:cat $tmpdir/labels.cv|"
-  
+
+  labels_tr="ark:$tmpdir/labels.tr"
+  labels_cv="ark:$tmpdir/labels.cv"
+
   trap "echo \"Removing features tmpdir $tmpdir @ $(hostname)\"; ls -l $tmpdir; rm -r $tmpdir" EXIT
 else
 
@@ -162,16 +175,23 @@ else
     tmpdir=$(mktemp -d $feats_tmpdir);
     copy-feats "$feats_tr" ark,scp:$tmpdir/train.ark,$tmpdir/train_local.scp || exit 1;
     copy-feats "$feats_cv" ark,scp:$tmpdir/cv.ark,$tmpdir/cv_local.scp || exit 1;
-    feats_tr="ark,s,cs:copy-feats scp:$tmpdir/train_local.scp ark:- |"
-    feats_cv="ark,s,cs:copy-feats scp:$tmpdir/cv_local.scp ark:- |"
+    feats_tr="ark:copy-feats --compress=$compress_feats scp:$tmpdir/train_local.scp ark:- |"
+    feats_cv="ark:copy-feats --compress=$compress_feats scp:$tmpdir/cv_local.scp ark:- |"
     trap "echo \"Removing features tmpdir $tmpdir @ $(hostname)\"; ls $tmpdir; rm -r $tmpdir" EXIT
   fi
 fi
 
 if $add_deltas; then
-    feats_tr="$feats_tr add-deltas ark:- ark:- |"
-    feats_cv="$feats_cv add-deltas ark:- ark:- |"
+  feats_tr="$feats_tr add-deltas ark:- ark:- |"
+  feats_cv="$feats_cv add-deltas ark:- ark:- |"
 fi
+
+# Global CMVN,
+compute-cmvn-stats "$feats_tr" $dir/global_cmvn_stats
+feats_tr="$feats_tr apply-cmvn --norm-means=true --norm-vars=true $dir/global_cmvn_stats ark:- ark:- | copy-matrix --scale=$feats_std ark:- ark:- |"
+feats_cv="$feats_cv apply-cmvn --norm-means=true --norm-vars=true $dir/global_cmvn_stats ark:- ark:- | copy-matrix --scale=$feats_std ark:- ark:- |"
+echo $feats_std >$dir/feats_std
+
 ## End of feature setup
 
 # Initialize model parameters
@@ -237,7 +257,7 @@ for iter in $(seq $start_epoch_num $max_iters); do
       learn_rate=$(awk "BEGIN{print($learn_rate*$halving_factor)}")
       learn_rate=$(awk "BEGIN{if ($learn_rate<$final_learn_rate) {print $final_learn_rate} else {print $learn_rate}}")
     fi
-    # save the status 
+    # save the status
     echo $[$iter+1] > $dir/.epoch    # +1 because we save the epoch to start from
     echo $cvacc > $dir/.cvacc
     echo $halving > $dir/.halving

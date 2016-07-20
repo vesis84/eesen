@@ -23,6 +23,9 @@
 #ifndef EESEN_AFFINE_TRANS_LAYER_H_
 #define EESEN_AFFINE_TRANS_LAYER_H_
 
+#include <numeric>
+#include <algorithm>
+
 #include "net/layer.h"
 #include "net/trainable-layer.h"
 #include "net/utils-functions.h"
@@ -57,6 +60,7 @@ class AffineTransform : public TrainableLayer {
     while (is >> std::ws, !is.eof()) {
       ReadToken(is, false, &token);
       /**/ if (token == "<ParamRange>") ReadBasicType(is, false, &param_range);
+      else if (token == "<GradMaxFrames>") ReadBasicType(is, false, &grad_max_frames_);
       else if (token == "<LearnRateCoef>") ReadBasicType(is, false, &learn_rate_coef_);
       else if (token == "<BiasLearnRateCoef>") ReadBasicType(is, false, &bias_learn_rate_coef_);
       else KALDI_ERR << "Unknown token " << token << ", a typo in config?"
@@ -71,15 +75,26 @@ class AffineTransform : public TrainableLayer {
   }
 
   void ReadData(std::istream &is, bool binary) {
-    // optional learning-rate coefs
-    if ('<' == Peek(is, binary)) {
-      ExpectToken(is, binary, "<LearnRateCoef>");
-      ReadBasicType(is, binary, &learn_rate_coef_);
+    // optional hyper-parameters,
+    while ('<' == Peek(is, binary)) {
+      std::string token;
+      int first_char = PeekToken(is, binary);
+      switch (first_char) {
+        case 'L': ExpectToken(is, binary, "<LearnRateCoef>");
+          ReadBasicType(is, binary, &learn_rate_coef_);
+          break;
+        case 'B': ExpectToken(is, binary, "<BiasLearnRateCoef>");
+          ReadBasicType(is, binary, &bias_learn_rate_coef_);
+          break;
+        case 'G': ExpectToken(is, binary, "<GradMaxFrames>");
+          ReadBasicType(is, binary, &grad_max_frames_);
+          break;
+        default:
+          ReadToken(is, false, &token);
+          KALDI_ERR << "Unknown token: " << token;
+      }
     }
-    if ('<' == Peek(is, binary)) {
-      ExpectToken(is, binary, "<BiasLearnRateCoef>");
-      ReadBasicType(is, binary, &bias_learn_rate_coef_);
-    }
+
     // weights
     linearity_.Read(is, binary);
     bias_.Read(is, binary);
@@ -94,6 +109,8 @@ class AffineTransform : public TrainableLayer {
     WriteBasicType(os, binary, learn_rate_coef_);
     WriteToken(os, binary, "<BiasLearnRateCoef>");
     WriteBasicType(os, binary, bias_learn_rate_coef_);
+    WriteToken(os, binary, "<GradMaxFrames>");
+    WriteBasicType(os, binary, grad_max_frames_);
 
     // weights
     linearity_.Write(os, binary);
@@ -143,6 +160,25 @@ class AffineTransform : public TrainableLayer {
     // compute gradient (incl. momentum)
     linearity_corr_.AddMatMat(1.0, diff, kTrans, input, kNoTrans, mmt);
     bias_corr_.AddRowSumMat(1.0, diff, mmt);
+
+    // Rescale the gradient according to the number of frames,
+    // from which the gradient was computed:
+    //
+    // scale = min(1.0, C / Nframes)
+    //
+    // where 'C' is a tunable constant 'grad_max_frames_'.
+    // The gradient stays unscaled for less than 'C' frames.
+    if (grad_max_frames_ > 0) {
+      // int32 num_frames = std::accumulate(seq_lengths_.begin(), seq_lengths_.end(), 0);
+      int32 num_frames = input.NumRows();
+      KALDI_ASSERT(num_frames > 0);
+      BaseFloat scale = std::min(static_cast<BaseFloat>(1.0), grad_max_frames_ / num_frames);
+      if (scale < 1.0) {
+        linearity_corr_.Scale(scale);
+        bias_corr_.Scale(scale);
+      }
+    }
+
     // update
     linearity_.AddMat(-lr, linearity_corr_);
     bias_.AddVec(-lr * bias_learn_rate_coef_, bias_corr_);
