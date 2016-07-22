@@ -1,3 +1,7 @@
+CUDA_ARCH = -gencode arch=compute_20,code=sm_20 \
+	    -gencode arch=compute_35,code=sm_35 \
+	    -gencode arch=compute_53,code=sm_53 \
+	    -gencode arch=compute_61,code=sm_61   # new in CUDA 8.0,
 
 CUDA_INCLUDE= -I$(CUDATKDIR)/include
 CUDA_FLAGS = -g -Xcompiler -fPIC --verbose --machine 64 -DHAVE_CUDA
