@@ -1,4 +1,5 @@
 CUDA_ARCH = -gencode arch=compute_20,code=sm_20 \
+	    -gencode arch=compute_30,code=sm_30 \
 	    -gencode arch=compute_35,code=sm_35 \
 	    -gencode arch=compute_52,code=sm_52 \
 	    -gencode arch=compute_61,code=sm_61   # new in CUDA 8.0,
