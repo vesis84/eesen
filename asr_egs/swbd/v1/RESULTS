@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for x in exp_110h/*/decode*; do [ -d $x ] && grep "$1" <(echo $x) >/dev/null && grep Sum $x/score_*/*.ctm.filt.sys | local/get_scores_from_lur.sh | utils/best_wer.sh; done 2>/dev/null
+for x in exp*/*/decode*; do [ -d $x ] && grep "$1" <(echo $x) >/dev/null && grep Sum $x/score_*/*.ctm.filt.sys | local/get_scores_from_lur.sh | utils/best_wer.sh; done 2>/dev/null
 
 exit 0
 
@@ -20,6 +20,13 @@ exit 0
 %WER 15.0 | 1831 21395 | 87.7 9.9 2.4 2.7 15.0 54.0 | exp/train_phn_l5_c320/decode_eval2000_sw1_fsh_tgpr/score_7/eval2000.ctm.swbd.filt.sys
 %WER 21.0 | 4459 42989 | 82.8 13.8 3.4 3.7 21.0 59.9 | exp/train_phn_l5_c320/decode_eval2000_sw1_fsh_tgpr/score_7/eval2000.ctm.filt.sys
 %WER 26.9 | 2628 21594 | 77.6 17.4 5.0 4.5 26.9 64.6 | exp/train_phn_l5_c320/decode_eval2000_sw1_fsh_tgpr/score_6/eval2000.ctm.callhm.filt.sys
+
+###
+# Karel's 300h results:  overall          callhm          swbd,
+| Set Sum/Avg | [42989]  20.7 || [21594]  26.8 | [21395]  14.6
+# Trained with: 'run_ctc_phn_5L_300H_std-fea_ALL-ITER-GOOGLE_GRAD-CLIP250.sh'
+# (per-frame clipping (cell 50, diff 1), update clipping 250, feature-std 0.5, blank-offset 0.75, leaning rate 0.0002)
+###
 
 ###################################################################
 # A comparison to HMM/DNN hybrid systems
